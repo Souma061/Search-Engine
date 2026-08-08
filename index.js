@@ -1,9 +1,5 @@
 import fs from "fs";
 
-/* ============================================================
- * CONFIGURATION
- * ============================================================ */
-
 const DOCUMENTS_PATH = "./docs";
 const files = fs.readdirSync(DOCUMENTS_PATH);
 
@@ -23,20 +19,15 @@ const files = fs.readdirSync(DOCUMENTS_PATH);
  */
 const index = {};
 
-/* ============================================================
- * HELPERS
- * ============================================================ */
-
 function tokenize(text) {
   return text
     .toLowerCase()
     .replace(/[^\w\s]/g, "")
     .split(/\s+/);
 }
-
-/* ============================================================
- * BUILD INDEX
- * ============================================================ */
+function rankResults(result) {
+  return Object.entries(result).sort((a, b) => b[1] - a[1]);
+}
 
 for (const file of files) {
   const content = fs.readFileSync(`${DOCUMENTS_PATH}/${file}`, "utf-8");
@@ -52,10 +43,6 @@ for (const file of files) {
   }
 }
 
-/* ============================================================
- * SEARCH : SINGLE WORD
- * ============================================================ */
-
 function search(word) {
   const result = index[word.toLowerCase()];
 
@@ -63,17 +50,14 @@ function search(word) {
     console.log("No results");
     return;
   }
+  const sortedResult = rankResults(result);
 
   console.log(`\nResults for "${word}"`);
 
-  for (const [file, count] of Object.entries(result)) {
+  for (const [file, count] of sortedResult) {
     console.log(`${file} -> ${count}`);
   }
 }
-
-/* ============================================================
- * SEARCH : BOOLEAN AND
- * ============================================================ */
 
 function searchAND(query) {
   const words = tokenize(query);
@@ -105,14 +89,11 @@ function searchAND(query) {
     },
     { ...firstFiles },
   );
+  const sortedResult = rankResults(result);
 
   console.log(`\nAND Search: "${query}"`);
-  console.table(result);
+  console.table(sortedResult);
 }
-
-/* ============================================================
- * SEARCH : BOOLEAN OR
- * ============================================================ */
 
 function searchOR(query) {
   const words = tokenize(query);
@@ -140,14 +121,11 @@ function searchOR(query) {
     },
     { ...firstFiles },
   );
+  const sortedResult = rankResults(result);
 
   console.log(`\nOR Search: "${query}"`);
-  console.table(result);
+  console.table(sortedResult);
 }
-
-/* ============================================================
- * TESTS
- * ============================================================ */
 
 console.log(index);
 
@@ -155,8 +133,4 @@ search("java");
 
 searchAND("java backend");
 
-searchOR("java python");
-
-
-
-
+searchOR("java backend");
