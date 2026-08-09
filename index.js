@@ -35,11 +35,18 @@ for (const file of files) {
   const words = tokenize(content);
 
   for (const word of words) {
-    if (!index[word]) {
-      index[word] = {};
-    }
-
-    index[word][file] = (index[word][file] || 0) + 1;
+      if(!index[word]) {
+          index[word] = {
+              documentFrequency : 0,
+              postings : {}
+          };
+      }
+      const postings = index[word].postings;
+      if(!postings[file]) {
+          postings[file] = 0;
+          index[word].documentFrequency++;
+      }
+      postings[file]++;
   }
 }
 
@@ -50,7 +57,7 @@ function search(word) {
     console.log("No results");
     return;
   }
-  const sortedResult = rankResults(result);
+  const sortedResult = rankResults(result.postings);
 
   console.log(`\nResults for "${word}"`);
 
@@ -59,10 +66,12 @@ function search(word) {
   }
 }
 
+
+
 function searchAND(query) {
   const words = tokenize(query);
 
-  const firstFiles = index[words[0]];
+  const firstFiles = index[words[0]]?.postings;
 
   if (!firstFiles) {
     console.log("No results");
@@ -71,7 +80,7 @@ function searchAND(query) {
 
   const result = words.slice(1).reduce(
     (acc, word) => {
-      const files = index[word];
+      const files = index[word]?.postings;
 
       if (!files) {
         return {};
@@ -98,7 +107,7 @@ function searchAND(query) {
 function searchOR(query) {
   const words = tokenize(query);
 
-  const firstFiles = index[words[0]];
+  const firstFiles = index[words[0]]?.postings;
 
   if (!firstFiles) {
     console.log("No results");
@@ -107,7 +116,7 @@ function searchOR(query) {
 
   const result = words.slice(1).reduce(
     (acc, word) => {
-      const files = index[word];
+      const files = index[word]?.postings;
 
       if (!files) {
         return acc;
@@ -127,10 +136,22 @@ function searchOR(query) {
   console.table(sortedResult);
 }
 
-console.log(index);
+function calculateIDF(word) {
+    const term = index[word.toLowerCase()];
+    if(!term) {
+        return 0;
+    }
+    const  totalDocs = files.length;
+    const documentFrequency = term.documentFrequency;
+    return Math.log(totalDocs / documentFrequency);
+}
+console.log(index["java"]);
 
 search("java");
 
 searchAND("java backend");
 
-searchOR("java backend");
+searchOR("java programming");
+
+console.log("IDF(java):", calculateIDF("java"));
+console.log("IDF(backend):", calculateIDF("backend"));
