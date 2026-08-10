@@ -28,9 +28,23 @@ const STOP_WORDS = new Set([
     "with",
 ]);
 
+type Posting = {
+    frequency: number;
+    positions: number[];
+};
+
+type Term = {
+    documentFrequency: number;
+    postings: Record<string, Posting>;
+};
+
+type Index = Record<string, Term>;
+
+type SearchMode = "AND" | "OR";
+
 // ---------- 1. Indexing ----------
 
-function tokenize(text) {
+function tokenize(text: string): string[] {
     return text
         .toLowerCase()
         .replace(/[^\w\s]/g, "")
@@ -39,15 +53,15 @@ function tokenize(text) {
         .filter((word) => !STOP_WORDS.has(word));
 }
 
-function buildIndex() {
-    const index = {};
+function buildIndex(): Index {
+    const index: Index = {};
     for (const file of files) {
         const words = tokenize(
             fs.readFileSync(
                 `${DOCUMENTS_PATH}/${file}`,
                 "utf8"
             )
-        )
+        );
         for (const [position, word] of words.entries()) {
             index[word] ??= {documentFrequency: 0, postings: {}};
             if (!(file in index[word].postings)) {
@@ -55,7 +69,7 @@ function buildIndex() {
                     frequency: 0,
                     positions: [],
                 };
-                index[word].documentFrequency++
+                index[word].documentFrequency++;
             }
             index[word].postings[file].frequency++;
             index[word].postings[file].positions.push(position);
@@ -88,7 +102,9 @@ const index = buildIndex();
 
 // ---------- 2. Retrieval ----------
 
-function retrieveDocuments(words, mode) {
+function retrieveDocuments(words: string[], mode: SearchMode): string[] {
+    if (words.length === 0) return [];
+
     const postings = words.map((word) => index[word]?.postings);
 
     if (mode === "AND") {
@@ -96,7 +112,7 @@ function retrieveDocuments(words, mode) {
         return Object.keys(postings[0]).filter((file) => postings.every((p) => p[file]));
     }
 
-    const docSet = new Set();
+    const docSet = new Set<string>();
     for (const posting of postings) {
         if (!posting) {
             continue;
@@ -106,7 +122,7 @@ function retrieveDocuments(words, mode) {
     return [...docSet];
 }
 
-function hasPhrase(file, words) {
+function hasPhrase(file: string, words: string[]): boolean {
     const firstWord = words[0];
     const firstPosition = index[firstWord]?.postings[file]?.positions;
 
@@ -132,13 +148,17 @@ function hasPhrase(file, words) {
     return false;
 }
 
+type PhraseResult = {
+    file: string;
+    phrase: string;
+};
 
-function searchPhrase(query) {
+function searchPhrase(query: string): PhraseResult[] {
     const words = tokenize(query);
     if (words.length === 0) {
         return [];
     }
-    const result = [];
+    const result: PhraseResult[] = [];
     for (const file of files) {
         if (hasPhrase(file, words)) {
             result.push({
@@ -148,23 +168,22 @@ function searchPhrase(query) {
         }
     }
     return result;
-
 }
 
 // ---------- 3. Scoring ----------
 
-function calculateIDF(word) {
+function calculateIDF(word: string): number {
     const term = index[word];
     return term ? Math.log(totalDocs / term.documentFrequency) : 0;
 }
 
-function calculateTFIDF(word, file) {
+function calculateTFIDF(word: string, file: string): number {
     const tf = index[word]?.postings[file]?.frequency;
     return tf ? tf * calculateIDF(word) : 0;
 }
 
-function scoreDocuments(words, docs) {
-    const scores = {};
+function scoreDocuments(words: string[], docs: string[]): Record<string, number> {
+    const scores: Record<string, number> = {};
     for (const file of docs) {
         scores[file] = words.reduce((sum, word) => sum + calculateTFIDF(word, file), 0);
     }
@@ -173,17 +192,13 @@ function scoreDocuments(words, docs) {
 
 // ---------- 4. Ranking ----------
 
-function rankResults(scores) {
+function rankResults(scores: Record<string, number>): [string, number][] {
     return Object.entries(scores).sort((a, b) => b[1] - a[1]);
 }
 
 // ---------- Pipeline ----------
 
-function search(query, mode = "OR") {
-    if (mode !== "AND" && mode !== "OR") {
-        throw new Error(`Unknown search mode: ${mode}`);
-    }
-
+function search(query: string, mode: SearchMode = "OR"): [string, number][] {
     const words = tokenize(query);
 
     if (words.length === 0) {
