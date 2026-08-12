@@ -10,9 +10,9 @@ export function parsePage(html: string, baseUrl: string): ParsedPage {
     const $ = cheerio.load(html);
 
     const title = $("title").first().text().trim();
-    const text = $("body").text().replace(/\s+/g, " ").trim();
-    const url: string[] = [];
 
+    // 1. Extract links first so crawler discovery isn't blocked by navigation stripping
+    const url: string[] = [];
     $("a[href]").each((_, element) => {
         const href = $(element).attr("href");
         if (!href) {
@@ -27,5 +27,14 @@ export function parsePage(html: string, baseUrl: string): ParsedPage {
             // skip malformed hrefs
         }
     });
-    return {title, text, links: url};
+
+    // 2. Remove noise and non-content tags before text extraction
+    $("nav, header, footer, aside, script, style, noscript, .sidebar").remove();
+
+    // 3. Prefer main content containers if present, fallback to body
+    const mainContent = $("main, article, #content").first();
+    const textTarget = mainContent.length ? mainContent : $("body");
+    const text = textTarget.text().replace(/\s+/g, " ").trim();
+
+    return { title, text, links: url };
 }

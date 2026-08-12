@@ -1,0 +1,1 @@
+JavaScript is a scripting language for the web. Use fs.readFile to read files. useState and useMemo are React hooks. The map method lives on Array.prototype.map. Runtime identifiers like node.js and v20.8.1 show up in developer docs. The C++ language is compiled.

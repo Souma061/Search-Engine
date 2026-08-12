@@ -18,8 +18,11 @@ const PAGE = `<!DOCTYPE html>
     body { font-family: system-ui, sans-serif; max-width: 640px; margin: 40px auto; }
     input[type=text] { width: 70%; padding: 8px; }
     button { padding: 8px 16px; }
-    li { margin: 12px 0; }
-    .score { color: #888; }
+    li { margin: 16px 0; }
+    .url { color: #006621; font-size: 0.85em; text-decoration: none; }
+    .score { color: #888; font-size: 0.85em; margin-left: 6px; }
+    .snippet { margin-top: 4px; color: #444; font-size: 0.9em; line-height: 1.4; }
+    mark { background: #fff3a3; padding: 0 2px; border-radius: 2px; }
 </style>
 </head>
 <body>
@@ -45,7 +48,10 @@ f.addEventListener("submit", async (e) => {
     const data = await res.json();
     r.innerHTML = data.results.map(x =>
         "<li><a href=\\"" + x.url + "\\">" + x.title + "</a> " +
-        "<span class=score>" + x.score.toFixed(3) + "</span><br>" + x.url + "</li>"
+        "<span class=score>[" + x.score.toFixed(3) + "]</span><br>" +
+        "<span class=url>" + x.url + "</span>" +
+        (x.snippet ? "<div class=snippet>" + x.snippet + "</div>" : "") +
+        "</li>"
     ).join("") || "<li>No results</li>";
 });
 </script>

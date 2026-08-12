@@ -1,7 +1,18 @@
-import { buildIndex, type Index, type DocumentStatsMap } from "../indexer/inverted-index.ts";
-import { DocumentStore } from "../store/document-store.ts";
 import type { Document } from "../indexer/document.ts";
+import { buildIndex, type DocumentStatsMap, type Index } from "../indexer/inverted-index.ts";
 import { tokenize } from "../indexer/tokenizer.ts";
+import { generateSnippet } from "../retrieval/snippet.ts";
+import {
+    calculateBM25 as calcBM25,
+    calculateBM25IDF as calcBM25IDF,
+    calculateBM25TF as calcBM25TF,
+    scoreDocumentsBM25,
+} from "../ranking/bm25.ts";
+import {
+    calculateIDF,
+    calculateTFIDF,
+    scoreDocuments,
+} from "../ranking/tfidf.ts";
 import { retrieveDocuments, type SearchMode } from "../retrieval/boolean.ts";
 import {
     countPhraseOccurrences,
@@ -10,25 +21,19 @@ import {
     type PhraseResult,
     type PhraseScore,
 } from "../retrieval/phrase.ts";
-import {
-    calculateIDF,
-    calculateTFIDF,
-    scoreDocuments,
-} from "../ranking/tfidf.ts";
-import {
-    calculateBM25 as calcBM25,
-    calculateBM25IDF as calcBM25IDF,
-    calculateBM25TF as calcBM25TF,
-    scoreDocumentsBM25,
-} from "../ranking/bm25.ts";
+import { DocumentStore } from "../store/document-store.ts";
+
+import { expandTokens } from "../retrieval/synonyms.ts";
 
 export const PHRASE_WEIGHT = 1;
+export const TITLE_BOOST_WEIGHT = 2.0;
 
 export type SearchResult = {
     documentId: string;
     title: string;
     url: string;
     score: number;
+    snippet: string;
 };
 
 export type SearchEngine = {
@@ -51,7 +56,9 @@ export function createSearchEngine(documents: Document[]): SearchEngine {
     const documentIds = Object.keys(documentStats);
     const totalDocs = documentIds.length;
     const averageDocumentLength =
-        documentIds.reduce((sum, documentId) => sum + documentStats[documentId].length, 0) / totalDocs;
+        totalDocs > 0
+            ? documentIds.reduce((sum, documentId) => sum + documentStats[documentId].length, 0) / totalDocs
+            : 0;
 
     const rankResults = (scores: Record<string, number>): [string, number][] =>
         Object.entries(scores).sort((a, b) => b[1] - a[1]);
@@ -59,19 +66,41 @@ export function createSearchEngine(documents: Document[]): SearchEngine {
     const documentStore = new DocumentStore();
     documentStore.addMany(documents);
 
-    const toSearchResults = (scores: Record<string, number>): SearchResult[] =>
-        rankResults(scores).map(([documentId, score]) => {
+    // const toSearchResults = (scores: Record<string, number>): SearchResult[] =>
+    //     rankResults(scores).map(([documentId, score]) => {
+    //         const document = documentStore.get(documentId);
+    //         return {
+    //             documentId,
+    //             title: document?.title ?? documentId,
+    //             url: document?.url ?? "",
+    //             score,
+    //         };
+    //     });
+
+    const toSearchResults = (scores: Record<string, number>, words: string[]): SearchResult[] => {
+        const boostedScores: Record<string, number> = {};
+
+        for (const [documentId, baseScore] of Object.entries(scores)) {
+            const document = documentStore.get(documentId);
+            const titleBoost = document ? calculateTitleBoost(document.title, words) : 0;
+            boostedScores[documentId] = baseScore + titleBoost;
+        }
+
+        return rankResults(boostedScores).map(([documentId, score]) => {
             const document = documentStore.get(documentId);
             return {
                 documentId,
                 title: document?.title ?? documentId,
                 url: document?.url ?? "",
                 score,
+                snippet: document?.text ? generateSnippet(document.text, words) : "",
             };
         });
+    };
+
 
     const scorePhraseQuery = (query: string): SearchResult[] => {
-        const words = tokenize(query);
+        const words = expandTokens(tokenize(query));
         if (words.length === 0) {
             return [];
         }
@@ -84,27 +113,27 @@ export function createSearchEngine(documents: Document[]): SearchEngine {
             const tfidfScore = words.reduce((sum, word) => sum + calculateTFIDF(totalDocs, index, documentStats, word, documentId), 0);
             score[documentId] = tfidfScore + occurrences * PHRASE_WEIGHT;
         }
-        return toSearchResults(score);
+        return toSearchResults(score, words);
     };
 
     return {
         search(query, mode = "OR") {
-            const words = tokenize(query);
+            const words = expandTokens(tokenize(query));
             if (words.length === 0) {
                 return [];
             }
             const docs = retrieveDocuments(index, words, mode);
             const scores = scoreDocuments(totalDocs, index, documentStats, words, docs);
-            return toSearchResults(scores);
+            return toSearchResults(scores, words);
         },
         searchBM25(query, mode = "OR") {
-            const words = tokenize(query);
+            const words = expandTokens(tokenize(query));
             if (words.length === 0) {
                 return [];
             }
             const docs = retrieveDocuments(index, words, mode);
             const scores = scoreDocumentsBM25(totalDocs, averageDocumentLength, index, documentStats, words, docs);
-            return toSearchResults(scores);
+            return toSearchResults(scores, words);
         },
         searchPhrase: (query) => searchPhrases(index, documentIds, query),
         rankPhrase: (query) => rankPhrases(index, documentIds, query),
@@ -117,4 +146,19 @@ export function createSearchEngine(documents: Document[]): SearchEngine {
         index,
         documentStats,
     };
+}
+
+
+function calculateTitleBoost(title: string, words: string[]): number {
+    const titleTokens = new Set(tokenize(title));
+    let boost = 0;
+
+
+    for (const word of words) {
+        if (titleTokens.has(word)) {
+            boost += TITLE_BOOST_WEIGHT;
+        }
+    }
+
+    return boost;
 }
