@@ -1,2 +1,14 @@
 node_modules
 index2.js
+dist
+
+# runtime data
+*.db
+*.db-journal
+
+# lockfiles: keep npm's package-lock.json
+pnpm-lock.yaml
+
+# IDE
+.idea/
+.vscode/

@@ -1,0 +1,84 @@
+import http from "node:http";
+import { loadDocuments } from "./src/store/sqlite-document-store.ts";
+import { createSearchEngine } from "./src/engine/search-engine.ts";
+
+const PORT = Number(process.env.SEARCH_PORT ?? 8080);
+const DB_PATH = process.env.DB_PATH ?? "index.db";
+
+const documents = loadDocuments(DB_PATH);
+console.log(`Loaded ${documents.length} documents from ${DB_PATH}`);
+
+const engine = createSearchEngine(documents);
+
+const PAGE = `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"><title>Search</title>
+<style>
+    body { font-family: system-ui, sans-serif; max-width: 640px; margin: 40px auto; }
+    input[type=text] { width: 70%; padding: 8px; }
+    button { padding: 8px 16px; }
+    li { margin: 12px 0; }
+    .score { color: #888; }
+</style>
+</head>
+<body>
+<h1>Search</h1>
+<form id="f">
+    <input type="text" id="q" placeholder="search query">
+    <select id="mode">
+        <option value="BM25">BM25</option>
+        <option value="TFIDF">TFIDF</option>
+        <option value="PHRASE">Phrase</option>
+    </select>
+    <button>Search</button>
+</form>
+<ol id="r"></ol>
+<script>
+const f = document.getElementById("f");
+const r = document.getElementById("r");
+f.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const q = document.getElementById("q").value;
+    const mode = document.getElementById("mode").value;
+    const res = await fetch("/search?q=" + encodeURIComponent(q) + "&mode=" + mode);
+    const data = await res.json();
+    r.innerHTML = data.results.map(x =>
+        "<li><a href=\\"" + x.url + "\\">" + x.title + "</a> " +
+        "<span class=score>" + x.score.toFixed(3) + "</span><br>" + x.url + "</li>"
+    ).join("") || "<li>No results</li>";
+});
+</script>
+</body>
+</html>`;
+
+const server = http.createServer(async (req, res) => {
+    const url = new URL(req.url ?? "/", `http://${req.headers.host}`);
+
+    res.setHeader("Access-Control-Allow-Origin", "*");
+
+    if (url.pathname === "/search") {
+        const q = url.searchParams.get("q") ?? "";
+        const mode = url.searchParams.get("mode") ?? "BM25";
+
+        const results =
+            mode === "TFIDF" ? engine.search(q) :
+            mode === "PHRASE" ? engine.scorePhraseQuery(q) :
+            engine.searchBM25(q);
+
+        res.setHeader("content-type", "application/json");
+        res.end(JSON.stringify({ q, mode, count: results.length, results }));
+        return;
+    }
+
+    if (url.pathname === "/") {
+        res.setHeader("content-type", "text/html");
+        res.end(PAGE);
+        return;
+    }
+
+    res.statusCode = 404;
+    res.end("Not found");
+});
+
+server.listen(PORT, () => console.log(`Search API on http://localhost:${PORT}/search?q=...`));
