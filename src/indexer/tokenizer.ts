@@ -1,3 +1,5 @@
+import { stem } from "./stemmer.ts";
+
 const STOP_WORDS = new Set([
     "a",
     "an",
@@ -65,11 +67,18 @@ export function tokenize(text: string): string[] {
 
         const emitted = new Set<string>();
         const add = (term: string): void => {
-            if (!term || STOP_WORDS.has(term) || emitted.has(term)) {
+            if (!term || STOP_WORDS.has(term)) {
                 return;
             }
-            emitted.add(term);
-            tokens.push(term);
+            const stemmed = stem(term);
+            if (!emitted.has(term)) {
+                emitted.add(term);
+                tokens.push(term);
+            }
+            if (stemmed !== term && !emitted.has(stemmed)) {
+                emitted.add(stemmed);
+                tokens.push(stemmed);
+            }
         };
 
         const raw = segment.match(/[A-Za-z0-9]+(?:\+\+)?/g) ?? [];

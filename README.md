@@ -149,10 +149,10 @@ node index.ts     # BM25/TF-IDF breakdown over docs/1..4.txt
 - [x] HTML Boilerplate Stripping: strips `<nav>`, `<header>`, `<footer>`, `<aside>`, `<script>`, `<style>` while preserving full link discovery.
 - [x] Title field boost weighting (`TITLE_BOOST_WEIGHT = 2.0`).
 - [x] Result snippets with `<mark>` match highlighting.
-- [ ] Porter stemmer / lemmatization.
+- [x] Porter stemmer / lemmatization (`src/indexer/stemmer.ts`).
 
 **Phase 2 — Scale & correctness**
-- [ ] Persist the inverted index; incremental rather than full rebuild.
+- [x] Persist inverted index to SQLite (`src/store/sqlite-index-store.ts`).
 - [ ] Incremental crawl: skip visited URLs, purge 404s, re-crawl stale pages.
 - [ ] `sitemap.xml` + `Crawl-delay` support; per-host rate limiting.
 - [ ] Near-duplicate detection (content hash).

@@ -1,14 +1,10 @@
 import http from "node:http";
 import { loadDocuments } from "./src/store/sqlite-document-store.ts";
 import { createSearchEngine } from "./src/engine/search-engine.ts";
+import type { Document } from "./src/indexer/document.ts";
 
 const PORT = Number(process.env.SEARCH_PORT ?? 8080);
 const DB_PATH = process.env.DB_PATH ?? "index.db";
-
-const documents = loadDocuments(DB_PATH);
-console.log(`Loaded ${documents.length} documents from ${DB_PATH}`);
-
-const engine = createSearchEngine(documents);
 
 const PAGE = `<!DOCTYPE html>
 <html lang="en">
@@ -47,7 +43,7 @@ f.addEventListener("submit", async (e) => {
     const res = await fetch("/search?q=" + encodeURIComponent(q) + "&mode=" + mode);
     const data = await res.json();
     r.innerHTML = data.results.map(x =>
-        "<li><a href=\\"" + x.url + "\\">" + x.title + "</a> " +
+        "<li><a href=\"" + x.url + "\">" + x.title + "</a> " +
         "<span class=score>[" + x.score.toFixed(3) + "]</span><br>" +
         "<span class=url>" + x.url + "</span>" +
         (x.snippet ? "<div class=snippet>" + x.snippet + "</div>" : "") +
@@ -58,33 +54,43 @@ f.addEventListener("submit", async (e) => {
 </body>
 </html>`;
 
-const server = http.createServer(async (req, res) => {
-    const url = new URL(req.url ?? "/", `http://${req.headers.host}`);
+export function createSearchApp(documents: Document[]): http.Server {
+    const engine = createSearchEngine(documents);
 
-    res.setHeader("Access-Control-Allow-Origin", "*");
+    return http.createServer(async (req, res) => {
+        const url = new URL(req.url ?? "/", `http://${req.headers.host}`);
 
-    if (url.pathname === "/search") {
-        const q = url.searchParams.get("q") ?? "";
-        const mode = url.searchParams.get("mode") ?? "BM25";
+        res.setHeader("Access-Control-Allow-Origin", "*");
 
-        const results =
-            mode === "TFIDF" ? engine.search(q) :
-            mode === "PHRASE" ? engine.scorePhraseQuery(q) :
-            engine.searchBM25(q);
+        if (url.pathname === "/search") {
+            const q = url.searchParams.get("q") ?? "";
+            const mode = url.searchParams.get("mode") ?? "BM25";
 
-        res.setHeader("content-type", "application/json");
-        res.end(JSON.stringify({ q, mode, count: results.length, results }));
-        return;
-    }
+            const results =
+                mode === "TFIDF" ? engine.search(q) :
+                mode === "PHRASE" ? engine.scorePhraseQuery(q) :
+                engine.searchBM25(q);
 
-    if (url.pathname === "/") {
-        res.setHeader("content-type", "text/html");
-        res.end(PAGE);
-        return;
-    }
+            res.setHeader("content-type", "application/json");
+            res.end(JSON.stringify({ q, mode, count: results.length, results }));
+            return;
+        }
 
-    res.statusCode = 404;
-    res.end("Not found");
-});
+        if (url.pathname === "/") {
+            res.setHeader("content-type", "text/html");
+            res.end(PAGE);
+            return;
+        }
 
-server.listen(PORT, () => console.log(`Search API on http://localhost:${PORT}/search?q=...`));
+        res.statusCode = 404;
+        res.end("Not found");
+    });
+}
+
+// Auto-start when executed as the main file
+if (process.argv[1] && process.argv[1].endsWith("search-api.ts")) {
+    const documents = loadDocuments(DB_PATH);
+    console.log(`Loaded ${documents.length} documents from ${DB_PATH}`);
+    const server = createSearchApp(documents);
+    server.listen(PORT, () => console.log(`Search API on http://localhost:${PORT}/search?q=...`));
+}
