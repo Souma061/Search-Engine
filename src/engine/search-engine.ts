@@ -24,6 +24,7 @@ import {
 import { DocumentStore } from "../store/document-store.ts";
 
 import { expandTokens } from "../retrieval/synonyms.ts";
+import { suggestCorrection } from "../retrieval/levenshtein.ts";
 
 export const PHRASE_WEIGHT = 1;
 export const TITLE_BOOST_WEIGHT = 2.0;
@@ -39,6 +40,7 @@ export type SearchResult = {
 export type SearchEngine = {
     search: (query: string, mode?: SearchMode) => SearchResult[];
     searchBM25: (query: string, mode?: SearchMode) => SearchResult[];
+    didYouMean: (query: string) => string | null;
     searchPhrase: (query: string) => PhraseResult[];
     rankPhrase: (query: string) => PhraseScore[];
     scorePhraseQuery: (query: string) => SearchResult[];
@@ -134,6 +136,22 @@ export function createSearchEngine(documents: Document[]): SearchEngine {
             const docs = retrieveDocuments(index, words, mode);
             const scores = scoreDocumentsBM25(totalDocs, averageDocumentLength, index, documentStats, words, docs);
             return toSearchResults(scores, words);
+        },
+        didYouMean(query: string): string | null {
+            const words = tokenize(query);
+            if (words.length === 0) return null;
+
+            let hasCorrection = false;
+            const corrected = words.map((word) => {
+                const suggestion = suggestCorrection(word, index);
+                if (suggestion && suggestion !== word.toLowerCase()) {
+                    hasCorrection = true;
+                    return suggestion;
+                }
+                return word;
+            });
+
+            return hasCorrection ? corrected.join(" ") : null;
         },
         searchPhrase: (query) => searchPhrases(index, documentIds, query),
         rankPhrase: (query) => rankPhrases(index, documentIds, query),

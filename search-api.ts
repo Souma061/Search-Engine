@@ -42,13 +42,18 @@ f.addEventListener("submit", async (e) => {
     const mode = document.getElementById("mode").value;
     const res = await fetch("/search?q=" + encodeURIComponent(q) + "&mode=" + mode);
     const data = await res.json();
-    r.innerHTML = data.results.map(x =>
+    let html = "";
+    if (data.didYouMean) {
+        html += "<p style=\"color:#c53929\">Did you mean: <a href=\"#\" onclick=\"document.getElementById('q').value='" + data.didYouMean + "';document.getElementById('f').dispatchEvent(new Event('submit'));return false;\">" + data.didYouMean + "</a>?</p>";
+    }
+    html += data.results.map(x =>
         "<li><a href=\"" + x.url + "\">" + x.title + "</a> " +
         "<span class=score>[" + x.score.toFixed(3) + "]</span><br>" +
         "<span class=url>" + x.url + "</span>" +
         (x.snippet ? "<div class=snippet>" + x.snippet + "</div>" : "") +
         "</li>"
     ).join("") || "<li>No results</li>";
+    r.innerHTML = html;
 });
 </script>
 </body>
@@ -71,8 +76,10 @@ export function createSearchApp(documents: Document[]): http.Server {
                 mode === "PHRASE" ? engine.scorePhraseQuery(q) :
                 engine.searchBM25(q);
 
+            const didYouMean = engine.didYouMean(q);
+
             res.setHeader("content-type", "application/json");
-            res.end(JSON.stringify({ q, mode, count: results.length, results }));
+            res.end(JSON.stringify({ q, mode, didYouMean, count: results.length, results }));
             return;
         }
 

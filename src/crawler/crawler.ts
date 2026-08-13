@@ -2,12 +2,16 @@ import { URLFrontier } from "./url-frontier.ts";
 import { fetchPage } from "./fetcher.ts";
 import { parsePage } from "./parser.ts";
 import type { Document } from "../indexer/document.ts";
+import type { DocumentMetadata } from "../store/sqlite-document-store.ts";
 import { RobotsChecker } from "./robots.ts";
 import { RateLimiter } from "./ratel-limiter.ts";
 import { WorkerPool } from "./worker-pool.ts";
 
 type DocumentSink = {
     add(document: Document): void;
+    getMetadata?(id: string): DocumentMetadata | undefined;
+    touchCrawled?(id: string, statusCode?: number): void;
+    delete?(id: string): boolean;
 };
 
 export type CrawlConfig = {
@@ -29,113 +33,80 @@ export async function crawl(
     const seed = new URL(seedUrl);
     const allowedHost = seed.host;
 
-    const limiter = new RateLimiter(
-        config.rateLimitMs,
-    );
-
-    const pool = new WorkerPool(
-        config.concurrency,
-    );
+    const limiter = new RateLimiter(config.rateLimitMs);
+    const pool = new WorkerPool(config.concurrency);
 
     /*
      * Fetch robots.txt once for the seed host.
      * If robots.txt is missing, allow crawling.
      */
-    const robotsUrl = new URL(
-        "/robots.txt",
-        seedUrl,
-    ).toString();
-
+    const robotsUrl = new URL("/robots.txt", seedUrl).toString();
     let robots: RobotsChecker;
 
     try {
         await limiter.wait(robotsUrl);
-
-        const robotsResponse = await fetch(
-            robotsUrl,
-        );
-
-        const robotsText = robotsResponse.ok
-            ? await robotsResponse.text()
-            : "";
-
+        const robotsResponse = await fetch(robotsUrl);
+        const robotsText = robotsResponse.ok ? await robotsResponse.text() : "";
         robots = new RobotsChecker(robotsText);
     } catch (error) {
-        console.warn(
-            `Could not fetch robots.txt for ${allowedHost}.`,
-        );
-
+        console.warn(`Could not fetch robots.txt for ${allowedHost}.`);
         console.warn(error);
-
-        // No robots.txt available → allow crawling.
         robots = new RobotsChecker("");
     }
 
-    /*
-     * Number of pages that have been reserved for crawling.
-     *
-     * This prevents concurrent workers from exceeding maxPages.
-     */
     let pagesReserved = 0;
 
-    const crawlPage = async (
-        url: string,
-        depth: number,
-    ): Promise<void> => {
-        /*
-         * Robots check happens before consuming a page slot.
-         */
+    const crawlPage = async (url: string, depth: number): Promise<void> => {
         if (!robots.canCrawl(url)) {
-            console.log(
-                `Blocked by robots.txt: ${url}`,
-            );
-
+            console.log(`Blocked by robots.txt: ${url}`);
             return;
         }
 
-        /*
-         * Reserve a page slot atomically from the
-         * JavaScript event loop before starting the fetch.
-         */
         if (pagesReserved >= config.maxPages) {
             return;
         }
 
         pagesReserved++;
-
         console.log(`Crawling: ${url}`);
 
-        let html: string;
+        const cachedMeta = documentStore.getMetadata?.(url);
+
+        let fetchResult;
 
         try {
             await limiter.wait(url);
-
-            html = await fetchPage(
-                url,
-                config.timeoutMs,
-                config.maxRetries,
-            );
+            fetchResult = await fetchPage(url, {
+                timeoutMs: config.timeoutMs,
+                maxRetries: config.maxRetries,
+                etag: cachedMeta?.etag,
+                lastModified: cachedMeta?.lastModified,
+            });
         } catch (error) {
-            console.error(
-                `Failed to fetch: ${url}`,
-            );
-
+            console.error(`Failed to fetch: ${url}`);
             console.error(error);
+            return;
+        }
 
+        // 304 Not Modified: page is unchanged!
+        if (fetchResult.status === 304) {
+            console.log(`Unchanged (304): ${url}`);
+            documentStore.touchCrawled?.(url, 304);
+            return;
+        }
+
+        // 404 Found or 410 Gone: purge deleted page!
+        if (fetchResult.status === 404 || fetchResult.status === 410) {
+            console.log(`Purged deleted page (${fetchResult.status}): ${url}`);
+            documentStore.delete?.(url);
             return;
         }
 
         let page;
-
         try {
-            page = parsePage(html, url);
+            page = parsePage(fetchResult.text, url);
         } catch (error) {
-            console.error(
-                `Failed to parse: ${url}`,
-            );
-
+            console.error(`Failed to parse: ${url}`);
             console.error(error);
-
             return;
         }
 
@@ -144,76 +115,46 @@ export async function crawl(
             url,
             title: page.title,
             text: page.text,
+            etag: fetchResult.etag,
+            lastModified: fetchResult.lastModified,
+            lastCrawledAt: Date.now(),
+            statusCode: 200,
         };
 
         documentStore.add(document);
 
-        console.log(
-            `Title: ${page.title}`,
-        );
+        console.log(`Title: ${page.title}`);
+        console.log(`Links found: ${page.links.length}`);
 
-        console.log(
-            `Links found: ${page.links.length}`,
-        );
-
-        /*
-         * Stop discovering deeper links once maxDepth
-         * is reached.
-         */
         if (depth >= config.maxDepth) {
             return;
         }
 
         for (const link of page.links) {
             let linkUrl: URL;
-
             try {
                 linkUrl = new URL(link);
             } catch {
                 continue;
             }
 
-            /*
-             * Stay on the same host.
-             */
             if (linkUrl.host !== allowedHost) {
                 continue;
             }
 
-            const normalizedUrl =
-                linkUrl.toString();
+            const normalizedUrl = linkUrl.toString();
 
-            /*
-             * Frontier handles deduplication.
-             */
             if (!frontier.add(normalizedUrl)) {
                 continue;
             }
 
-            pool.submit(() =>
-                crawlPage(
-                    normalizedUrl,
-                    depth + 1,
-                ),
-            );
+            pool.submit(() => crawlPage(normalizedUrl, depth + 1));
         }
     };
 
-    /*
-     * Seed starts at depth 0.
-     */
     if (frontier.add(seedUrl)) {
-        pool.submit(() =>
-            crawlPage(seedUrl, 0),
-        );
+        pool.submit(() => crawlPage(seedUrl, 0));
     }
 
-    /*
-     * Wait until:
-     *
-     * queue === empty
-     * AND
-     * active workers === 0
-     */
     await pool.done();
 }
