@@ -6,7 +6,9 @@ export class TursoDocumentStore {
     private readonly client: Client;
 
     constructor(url: string, authToken: string) {
-        this.client = createClient({ url, authToken });
+        const cleanUrl = url.trim();
+        const cleanToken = authToken.trim();
+        this.client = createClient({ url: cleanUrl, authToken: cleanToken });
     }
 
     async init(): Promise<void> {

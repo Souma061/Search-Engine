@@ -2,8 +2,8 @@ import { crawl, type CrawlConfig } from "./src/crawler/crawler.ts";
 import { TursoDocumentStore } from "./src/store/turso-document-store.ts";
 import { SqliteDocumentStore } from "./src/store/sqlite-document-store.ts";
 
-const TURSO_URL = process.env.TURSO_DATABASE_URL;
-const TURSO_TOKEN = process.env.TURSO_AUTH_TOKEN;
+const TURSO_URL = process.env.TURSO_DATABASE_URL?.trim();
+const TURSO_TOKEN = process.env.TURSO_AUTH_TOKEN?.trim();
 
 const SEED_URLS = [
     "https://react.dev/reference/react",

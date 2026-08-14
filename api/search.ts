@@ -2,8 +2,8 @@ import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { createClient } from "@libsql/client";
 
 const db = createClient({
-    url: process.env.TURSO_DATABASE_URL!,
-    authToken: process.env.TURSO_AUTH_TOKEN!,
+    url: (process.env.TURSO_DATABASE_URL ?? "").trim(),
+    authToken: (process.env.TURSO_AUTH_TOKEN ?? "").trim(),
 });
 
 const STOP_WORDS = new Set([
