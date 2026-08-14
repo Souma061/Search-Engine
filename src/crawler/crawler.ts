@@ -122,7 +122,7 @@ export async function crawl(
             lastModified: fetchResult.lastModified,
             lastCrawledAt: Date.now(),
             statusCode: 200,
-            category: detectCategory(url),
+            category: detectCategory(url, page.siteName),
         };
 
         await documentStore.add(document);

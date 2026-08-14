@@ -365,6 +365,23 @@ export function createSearchApp(documents: Document[]): http.Server {
         res.setHeader("Access-Control-Allow-Origin", "*");
 
         if (url.pathname === "/search") {
+            const action = url.searchParams.get("action");
+            const categoryCounts: Record<string, number> = {};
+            for (const doc of documents) {
+                if (doc.category) {
+                    categoryCounts[doc.category] = (categoryCounts[doc.category] || 0) + 1;
+                }
+            }
+            const categories = Object.entries(categoryCounts)
+                .map(([name, count]) => ({ name, count }))
+                .sort((a, b) => b.count - a.count);
+
+            if (action === "categories") {
+                res.setHeader("content-type", "application/json");
+                res.end(JSON.stringify({ categories }));
+                return;
+            }
+
             const q = url.searchParams.get("q") ?? "";
             const mode = url.searchParams.get("mode") ?? "BM25";
             const category = url.searchParams.get("category") ?? undefined;
@@ -377,7 +394,7 @@ export function createSearchApp(documents: Document[]): http.Server {
             const didYouMean = engine.didYouMean(q);
 
             res.setHeader("content-type", "application/json");
-            res.end(JSON.stringify({ q, mode, category: category ?? "All", didYouMean, count: results.length, results }));
+            res.end(JSON.stringify({ q, mode, category: category ?? "All", didYouMean, count: results.length, categories, results }));
             return;
         }
 

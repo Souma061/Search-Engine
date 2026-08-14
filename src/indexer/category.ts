@@ -1,83 +1,64 @@
-export type Category =
-    | "AI / ML"
-    | "React"
-    | "Next.js"
-    | "Angular"
-    | "Vue"
-    | "MDN"
-    | "TypeScript"
-    | "Node.js"
-    | "Python"
-    | "Rust"
-    | "Go"
-    | "Express"
-    | "FastAPI"
-    | "Tailwind"
-    | "Docker"
-    | "Kubernetes"
-    | "Databases"
-    | "General";
+export type Category = string;
 
-export function detectCategory(url: string): Category {
+const BRAND_NAME_MAP: Record<string, string> = {
+    "developer.mozilla.org": "MDN",
+    "react.dev": "React",
+    "nextjs.org": "Next.js",
+    "angular.dev": "Angular",
+    "angular.io": "Angular",
+    "vuejs.org": "Vue",
+    "nodejs.org": "Node.js",
+    "typescriptlang.org": "TypeScript",
+    "python.org": "Python",
+    "pytorch.org": "PyTorch",
+    "huggingface.co": "Hugging Face",
+    "langchain.com": "LangChain",
+    "fastapi.tiangolo.com": "FastAPI",
+    "expressjs.com": "Express",
+    "tailwindcss.com": "Tailwind",
+    "docker.com": "Docker",
+    "kubernetes.io": "Kubernetes",
+    "postgresql.org": "PostgreSQL",
+    "redis.io": "Redis",
+    "mongodb.com": "MongoDB",
+};
+
+const GENERIC_HOSTS = new Set(["example.com", "example.org", "localhost", "127.0.0.1"]);
+
+/**
+ * Dynamically detects the category / framework name for any URL.
+ * Automatically derives brand names from domain names or HTML meta tags
+ * without requiring manual code changes for new websites.
+ */
+export function detectCategory(url: string, siteName?: string): string {
+    if (siteName && siteName.length > 1 && siteName.length < 30) {
+        return siteName;
+    }
+
     try {
-        const host = new URL(url).hostname.toLowerCase();
-        const path = new URL(url).pathname.toLowerCase();
+        const parsed = new URL(url);
+        const host = parsed.hostname.toLowerCase();
 
-        // AI / Machine Learning
-        if (
-            host.includes("huggingface.co") ||
-            host.includes("pytorch.org") ||
-            host.includes("langchain.com") ||
-            host.includes("openai.com") ||
-            host.includes("anthropic.com") ||
-            host.includes("tensorflow.org") ||
-            host.includes("scikit-learn.org") ||
-            path.includes("/ai") ||
-            path.includes("/machine-learning")
-        ) {
-            return "AI / ML";
+        if (GENERIC_HOSTS.has(host)) {
+            return "General";
         }
 
-        // Frontend Frameworks
-        if (host.includes("react.dev")) return "React";
-        if (host.includes("nextjs.org")) return "Next.js";
-        if (host.includes("angular.dev") || host.includes("angular.io")) return "Angular";
-        if (host.includes("vuejs.org")) return "Vue";
-        if (host.includes("tailwindcss.com")) return "Tailwind";
-
-        // Web Standards
-        if (host.includes("developer.mozilla.org")) return "MDN";
-
-        // Programming Languages & Runtimes
-        if (host.includes("typescriptlang.org")) return "TypeScript";
-        if (host.includes("nodejs.org")) return "Node.js";
-        if (host.includes("python.org")) return "Python";
-        if (host.includes("rust-lang.org")) return "Rust";
-        if (host.includes("go.dev") || host.includes("golang.org")) return "Go";
-
-        // Backend Frameworks
-        if (host.includes("expressjs.com")) return "Express";
-        if (host.includes("fastapi.tiangolo.com")) return "FastAPI";
-
-        // DevOps & Infrastructure
-        if (host.includes("docker.com")) return "Docker";
-        if (host.includes("kubernetes.io")) return "Kubernetes";
-
-        // Databases
-        if (
-            host.includes("postgresql.org") ||
-            host.includes("redis.io") ||
-            host.includes("mongodb.com") ||
-            host.includes("sqlite.org") ||
-            host.includes("turso.tech")
-        ) {
-            return "Databases";
+        // Check common direct mapping
+        for (const [domain, name] of Object.entries(BRAND_NAME_MAP)) {
+            if (host.includes(domain)) {
+                return name;
+            }
         }
 
-        return "General";
-    } catch (error) {
-        console.error(`Failed to detect category for ${url}`);
-        console.error(error);
+        // Generic fallback: strip subdomains (docs, dev, www, reference, api) and TLD (.org, .com, .dev, .io)
+        const cleanHost = host.replace(/^(www|docs|developer|reference|api|guide)\./, "");
+        const brand = cleanHost.split(".")[0];
+
+        if (!brand || brand === "example") return "General";
+
+        // Capitalize first letter (e.g. "svelte" -> "Svelte", "bun" -> "Bun")
+        return brand.charAt(0).toUpperCase() + brand.slice(1);
+    } catch {
         return "General";
     }
 }

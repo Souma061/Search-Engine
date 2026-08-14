@@ -73,27 +73,64 @@ type DocRow = {
     category: string | null;
 };
 
+async function getDynamicCategories(): Promise<Array<{ name: string; count: number }>> {
+    try {
+        const res = await db.execute(`
+            SELECT category, COUNT(*) as count 
+            FROM documents 
+            WHERE category IS NOT NULL AND category != ''
+            GROUP BY category 
+            ORDER BY count DESC 
+            LIMIT 25
+        `);
+        return res.rows.map((row: any) => ({
+            name: String(row.category),
+            count: Number(row.count),
+        }));
+    } catch {
+        return [];
+    }
+}
+
 export default async function handler(req: VercelRequest, res: VercelResponse) {
+    const action = req.query.action as string | undefined;
+
+    if (action === "categories") {
+        const categories = await getDynamicCategories();
+        return res.status(200).json({ categories });
+    }
+
     const q = (req.query.q as string) ?? "";
     const mode = (req.query.mode as string) ?? "BM25";
     const category = (req.query.category as string) ?? undefined;
 
+    const [categories, docsResult] = await Promise.all([
+        getDynamicCategories(),
+        (async () => {
+            let query = "SELECT id, url, title, text, category FROM documents";
+            const args: string[] = [];
+            if (category && category !== "All") {
+                query += " WHERE category = ?";
+                args.push(category);
+            }
+            return db.execute({ sql: query, args });
+        })(),
+    ]);
+
     const words = tokenize(q);
     if (words.length === 0) {
-        return res.status(200).json({ q, mode, category: category ?? "All", didYouMean: null, count: 0, results: [] });
+        return res.status(200).json({
+            q,
+            mode,
+            category: category ?? "All",
+            didYouMean: null,
+            count: 0,
+            categories,
+            results: [],
+        });
     }
 
-    // Fetch all documents from Turso
-    let query = "SELECT id, url, title, text, category FROM documents";
-    const args: string[] = [];
-
-    if (category) {
-        query += " WHERE category = ?";
-        args.push(category);
-    }
-
-    const result = await db.execute({ sql: query, args });
-    const docs = result.rows as unknown as DocRow[];
+    const docs = docsResult.rows as unknown as DocRow[];
 
     // Score documents
     const scoredResults: Array<{
@@ -152,6 +189,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         category: category ?? "All",
         didYouMean,
         count: scoredResults.length,
+        categories,
         results: scoredResults,
     });
 }

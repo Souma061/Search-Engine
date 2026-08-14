@@ -1,15 +1,22 @@
 import * as cheerio from "cheerio";
 
-type ParsedPage = {
+export type ParsedPage = {
     title: string;
     text: string;
     links: string[];
-}
+    siteName?: string;
+};
 
 export function parsePage(html: string, baseUrl: string): ParsedPage {
     const $ = cheerio.load(html);
 
     const title = $("title").first().text().trim();
+
+    // Extract site name from meta tags if available
+    const siteName =
+        $('meta[property="og:site_name"]').attr("content")?.trim() ||
+        $('meta[name="application-name"]').attr("content")?.trim() ||
+        $('meta[name="apple-mobile-web-app-title"]').attr("content")?.trim();
 
     // 1. Extract links first so crawler discovery isn't blocked by navigation stripping
     const url: string[] = [];
@@ -36,5 +43,5 @@ export function parsePage(html: string, baseUrl: string): ParsedPage {
     const textTarget = mainContent.length ? mainContent : $("body");
     const text = textTarget.text().replace(/\s+/g, " ").trim();
 
-    return { title, text, links: url };
+    return { title, text, links: url, siteName: siteName || undefined };
 }

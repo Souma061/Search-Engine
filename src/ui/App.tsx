@@ -10,45 +10,44 @@ export type SearchResult = {
     category?: string;
 };
 
+export type CategoryInfo = {
+    name: string;
+    count?: number;
+};
+
 export type SearchResponse = {
     q: string;
     mode: string;
     category: string;
     didYouMean: string | null;
     count: number;
+    categories?: CategoryInfo[];
     results: SearchResult[];
 };
-
-const CATEGORIES = [
-    "All",
-    "AI / ML",
-    "React",
-    "Next.js",
-    "Angular",
-    "Vue",
-    "Python",
-    "TypeScript",
-    "Node.js",
-    "Rust",
-    "Go",
-    "FastAPI",
-    "Express",
-    "Tailwind",
-    "Docker",
-    "Kubernetes",
-    "Databases",
-];
 
 export function App() {
     const [query, setQuery] = useState("");
     const [mode, setMode] = useState("BM25");
     const [category, setCategory] = useState("");
+    const [categories, setCategories] = useState<CategoryInfo[]>([]);
     const [results, setResults] = useState<SearchResult[]>([]);
     const [didYouMean, setDidYouMean] = useState<string | null>(null);
     const [count, setCount] = useState<number | null>(null);
     const [elapsedMs, setElapsedMs] = useState<string | null>(null);
     const [loading, setLoading] = useState(false);
     const [searchedQuery, setSearchedQuery] = useState("");
+
+    // Dynamically load available categories on mount
+    useEffect(() => {
+        fetch("/search?action=categories")
+            .then((res) => res.json())
+            .then((data) => {
+                if (data.categories && Array.isArray(data.categories)) {
+                    setCategories(data.categories);
+                }
+            })
+            .catch(() => {});
+    }, []);
 
     const performSearch = useCallback(async (searchQuery: string, searchMode: string, searchCategory: string) => {
         const trimmed = searchQuery.trim();
@@ -64,7 +63,7 @@ export function App() {
         window.history.pushState({}, "", `/?${urlParams.toString()}`);
 
         try {
-            const apiCategory = searchCategory ? `&category=${encodeURIComponent(searchCategory)}` : "";
+            const apiCategory = searchCategory && searchCategory !== "All" ? `&category=${encodeURIComponent(searchCategory)}` : "";
             const res = await fetch(`/search?q=${encodeURIComponent(trimmed)}&mode=${searchMode}${apiCategory}`);
             const data: SearchResponse = await res.json();
             const timeTaken = (performance.now() - start).toFixed(1);
@@ -74,6 +73,10 @@ export function App() {
             setCount(data.count || 0);
             setElapsedMs(timeTaken);
             setSearchedQuery(trimmed);
+
+            if (data.categories && Array.isArray(data.categories) && data.categories.length > 0) {
+                setCategories(data.categories);
+            }
         } catch (err) {
             console.error("Search failed:", err);
         } finally {
@@ -81,62 +84,62 @@ export function App() {
         }
     }, []);
 
-    // Initial search load from URL params
+    // Initial search on mount if query params exist in URL
     useEffect(() => {
         const params = new URLSearchParams(window.location.search);
-        const initialQ = params.get("q");
-        const initialCat = params.get("category") || "";
-
-        if (initialCat) setCategory(initialCat);
-        if (initialQ) {
-            setQuery(initialQ);
-            performSearch(initialQ, mode, initialCat);
+        const qParam = params.get("q") || "";
+        const catParam = params.get("category") || "";
+        if (catParam) setCategory(catParam);
+        if (qParam) {
+            setQuery(qParam);
+            performSearch(qParam, mode, catParam);
         }
-    }, [performSearch, mode]);
+    }, [mode, performSearch]);
 
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
         performSearch(query, mode, category);
     };
 
-    const handleCategoryClick = (cat: string) => {
-        const nextCat = cat === "All" ? "" : cat;
-        setCategory(nextCat);
+    const handleCategoryClick = (catName: string) => {
+        const next = catName === "All" || category === catName ? "" : catName;
+        setCategory(next);
         if (query.trim()) {
-            performSearch(query, mode, nextCat);
+            performSearch(query, mode, next);
         }
     };
 
-    const handleDidYouMeanClick = (suggestion: string) => {
-        setQuery(suggestion);
-        performSearch(suggestion, mode, category);
+    const handleDidYouMeanClick = (suggested: string) => {
+        setQuery(suggested);
+        performSearch(suggested, mode, category);
     };
 
     return (
-        <div className="app-container">
-            <header className="app-header">
-                <h1 className="logo-title">DevDocs</h1>
-                <div className="logo-subtitle">Developer Search Engine for Web Documentation</div>
+        <div className="search-container">
+            <header className="header">
+                <h1 className="logo">DevDocs</h1>
+                <p className="subtitle">Developer Search Engine for Web & AI Documentation</p>
             </header>
 
-            <form className="search-form" onSubmit={handleSubmit}>
-                <div className="search-bar-pill">
+            <form onSubmit={handleSubmit} className="search-form">
+                <div className="search-input-wrapper">
                     <span className="search-icon">🔍</span>
                     <input
                         type="text"
                         className="search-input"
-                        placeholder="Search JS, React, Node, TS docs..."
+                        placeholder="Search React, PyTorch, Angular, FastAPI, Node.js docs..."
                         value={query}
                         onChange={(e) => setQuery(e.target.value)}
                         autoFocus
                     />
                     <select
-                        className="search-mode-select"
+                        className="mode-select"
                         value={mode}
                         onChange={(e) => setMode(e.target.value)}
+                        aria-label="Search Mode"
                     >
                         <option value="BM25">BM25</option>
-                        <option value="TFIDF">TF-IDF</option>
+                        <option value="TF-IDF">TF-IDF</option>
                         <option value="PHRASE">Phrase</option>
                     </select>
                     <button type="submit" className="search-submit-btn">
@@ -145,16 +148,23 @@ export function App() {
                 </div>
 
                 <div className="categories-bar">
-                    {CATEGORIES.map((cat) => {
-                        const isActive = cat === "All" ? category === "" : category === cat;
+                    <button
+                        type="button"
+                        className={`category-chip ${category === "" ? "active" : ""}`}
+                        onClick={() => handleCategoryClick("All")}
+                    >
+                        All
+                    </button>
+                    {categories.map((cat) => {
+                        const isActive = category === cat.name;
                         return (
                             <button
-                                key={cat}
+                                key={cat.name}
                                 type="button"
                                 className={`category-chip ${isActive ? "active" : ""}`}
-                                onClick={() => handleCategoryClick(cat)}
+                                onClick={() => handleCategoryClick(cat.name)}
                             >
-                                {cat}
+                                {cat.name} {cat.count ? `(${cat.count})` : ""}
                             </button>
                         );
                     })}
