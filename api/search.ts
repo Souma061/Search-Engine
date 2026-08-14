@@ -73,7 +73,15 @@ type DocRow = {
     category: string | null;
 };
 
+// In-memory cache for category aggregation (refreshed every 60s)
+let cachedCategories: Array<{ name: string; count: number }> | null = null;
+let lastCategoryFetch = 0;
+
 async function getDynamicCategories(): Promise<Array<{ name: string; count: number }>> {
+    const now = Date.now();
+    if (cachedCategories && now - lastCategoryFetch < 60000) {
+        return cachedCategories;
+    }
     try {
         const res = await db.execute(`
             SELECT category, COUNT(*) as count 
@@ -83,16 +91,22 @@ async function getDynamicCategories(): Promise<Array<{ name: string; count: numb
             ORDER BY count DESC 
             LIMIT 25
         `);
-        return res.rows.map((row: any) => ({
+        cachedCategories = res.rows.map((row: any) => ({
             name: String(row.category),
             count: Number(row.count),
         }));
+        lastCategoryFetch = now;
+        return cachedCategories;
     } catch {
-        return [];
+        return cachedCategories || [];
     }
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
+    // Enable edge caching headers
+    res.setHeader("Cache-Control", "s-maxage=3600, stale-while-revalidate=86400");
+    res.setHeader("Access-Control-Allow-Origin", "*");
+
     const action = req.query.action as string | undefined;
 
     if (action === "categories") {
@@ -104,20 +118,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const mode = (req.query.mode as string) ?? "BM25";
     const category = (req.query.category as string) ?? undefined;
 
-    const [categories, docsResult] = await Promise.all([
-        getDynamicCategories(),
-        (async () => {
-            let query = "SELECT id, url, title, text, category FROM documents";
-            const args: string[] = [];
-            if (category && category !== "All") {
-                query += " WHERE category = ?";
-                args.push(category);
-            }
-            return db.execute({ sql: query, args });
-        })(),
-    ]);
-
     const words = tokenize(q);
+
+    const categories = await getDynamicCategories();
+
     if (words.length === 0) {
         return res.status(200).json({
             q,
@@ -130,10 +134,55 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         });
     }
 
+    // Fast Indexed SQL Query: Fetch ONLY matching documents using DB indexes instead of scanning all 1,300+ docs
+    let querySql = "SELECT id, url, title, text, category FROM documents WHERE ";
+    const queryArgs: string[] = [];
+
+    const conditions: string[] = [];
+    if (category && category !== "All") {
+        conditions.push("category = ?");
+        queryArgs.push(category);
+    }
+
+    // Match query terms in title, text, or category
+    const wordConditions: string[] = [];
+    for (const w of words) {
+        wordConditions.push("(title LIKE ? OR text LIKE ? OR category LIKE ?)");
+        queryArgs.push(`%${w}%`, `%${w}%`, `%${w}%`);
+    }
+    conditions.push(`(${wordConditions.join(" OR ")})`);
+
+    querySql += conditions.join(" AND ") + " LIMIT 120";
+
+    const docsResult = await db.execute({ sql: querySql, args: queryArgs });
     const docs = docsResult.rows as unknown as DocRow[];
     const N = docs.length;
 
-    // Calculate document lengths and average document length (for BM25)
+    if (N === 0) {
+        // Find "Did You Mean" from sample docs if 0 results
+        let didYouMean: string | null = null;
+        for (const cat of categories) {
+            for (const w of words) {
+                if (levenshteinDistance(w, cat.name.toLowerCase()) === 1) {
+                    didYouMean = cat.name;
+                    break;
+                }
+            }
+            if (didYouMean) break;
+        }
+
+        return res.status(200).json({
+            q,
+            mode,
+            category: category ?? "All",
+            didYouMean,
+            count: 0,
+            categories,
+            results: [],
+        });
+    }
+
+    // BM25 Ranking with Title Boost on the candidate set
     let totalLength = 0;
     const docTokenFreqs: Array<{
         doc: DocRow;
@@ -142,7 +191,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         length: number;
     }> = [];
 
-    // Document frequencies (DF) for each query term
     const df: Record<string, number> = {};
     for (const w of words) df[w] = 0;
 
@@ -171,14 +219,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const k1 = 1.2;
     const b = 0.75;
 
-    // Calculate IDF for words
     const idf: Record<string, number> = {};
     for (const w of words) {
         const docCount = df[w] || 0;
         idf[w] = Math.log(1 + (N - docCount + 0.5) / (docCount + 0.5));
     }
 
-    // Score documents
     const scoredResults: Array<{
         documentId: string;
         title: string;
@@ -192,46 +238,33 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     for (const { doc, titleTokens, bodyFreqs, length } of docTokenFreqs) {
         let score = 0;
-        let matchedTerms = 0;
 
         for (const w of words) {
             const tf = bodyFreqs[w] || 0;
             const inTitle = titleTokens.has(w);
 
             if (tf > 0 || inTitle) {
-                matchedTerms++;
-
                 if (mode === "TF-IDF") {
                     score += (tf / length) * (idf[w] || 1);
                 } else {
-                    // BM25 scoring formula
                     const numerator = tf * (k1 + 1);
                     const denominator = tf + k1 * (1 - b + b * (length / avgdl));
                     score += (idf[w] || 1) * (numerator / denominator);
                 }
 
-                // 🌟 TITLE BOOST: Matching the title gives a massive relevance boost!
-                if (inTitle) {
-                    score += 5.0;
-                }
+                // Title Boost
+                if (inTitle) score += 5.0;
 
-                // 🌟 URL / Category relevance boost
-                if (doc.category && doc.category.toLowerCase().includes(w)) {
-                    score += 3.0;
-                }
-                if (doc.url.toLowerCase().includes(w)) {
-                    score += 1.5;
-                }
+                // Category match boost
+                if (doc.category && doc.category.toLowerCase().includes(w)) score += 3.0;
+                if (doc.url.toLowerCase().includes(w)) score += 1.5;
             }
         }
 
-        // 🌟 EXACT PHRASE BOOST: If full multi-word query appears in title or text
+        // Phrase boost
         if (words.length > 1) {
-            if (doc.title.toLowerCase().includes(lowerQuery)) {
-                score += 8.0;
-            } else if (doc.text.toLowerCase().includes(lowerQuery)) {
-                score += 4.0;
-            }
+            if (doc.title.toLowerCase().includes(lowerQuery)) score += 8.0;
+            else if (doc.text.toLowerCase().includes(lowerQuery)) score += 4.0;
         }
 
         if (score > 0) {
@@ -246,34 +279,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         }
     }
 
-    // Sort by highest relevance score first
     scoredResults.sort((a, b) => b.score - a.score);
-
-    // Did you mean?
-    let didYouMean: string | null = null;
-    if (scoredResults.length === 0) {
-        for (const { doc } of docTokenFreqs) {
-            const allTokens = tokenize(doc.title + " " + doc.text);
-            for (const t of allTokens) {
-                for (const w of words) {
-                    if (levenshteinDistance(w, t) === 1) {
-                        didYouMean = t;
-                        break;
-                    }
-                }
-                if (didYouMean) break;
-            }
-            if (didYouMean) break;
-        }
-    }
 
     res.status(200).json({
         q,
         mode,
         category: category ?? "All",
-        didYouMean,
+        didYouMean: null,
         count: scoredResults.length,
         categories,
-        results: scoredResults,
+        results: scoredResults.slice(0, 30),
     });
 }
