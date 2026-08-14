@@ -10,7 +10,7 @@
     "node": ">=20.0.0"
   },
   "scripts": {
-    "build": "tsc",
+    "build": "vite build",
     "dev": "vite",
     "ui:build": "vite build",
     "start": "node index.ts",
