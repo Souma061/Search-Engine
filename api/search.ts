@@ -12,6 +12,12 @@ const STOP_WORDS = new Set([
     "was", "what", "when", "where", "who", "will", "with"
 ]);
 
+const KNOWN_VOCABULARY = [
+    "language", "javascript", "typescript", "python", "react", "angular", "vue",
+    "database", "function", "component", "variable", "middleware", "routing",
+    "hook", "signals", "compiler", "library", "framework", "tutorial"
+];
+
 function tokenize(text: string): string[] {
     const rawTokens = text
         .toLowerCase()
@@ -22,7 +28,6 @@ function tokenize(text: string): string[] {
     for (const token of rawTokens) {
         if (!token) continue;
         if (STOP_WORDS.has(token)) continue;
-        if (token.length === 1 && !/[a-z0-9]/i.test(token)) continue;
         tokens.push(token);
     }
     return tokens;
@@ -57,9 +62,12 @@ function generateSnippet(text: string, queryWords: string[], windowSize = 160): 
     let start = Math.max(0, firstPos === -1 ? 0 : firstPos - 40);
     let end = Math.min(text.length, start + windowSize);
     let snippet = (start > 0 ? "..." : "") + text.slice(start, end) + (end < text.length ? "..." : "");
+
+    // Highlight whole words only (avoid highlighting letters inside other words)
     for (const word of queryWords) {
         if (!word) continue;
-        const regex = new RegExp(`(${word.replace(/[.*+?^${}()|[\\]\\\\]/g, "\\$&")})`, "gi");
+        const escaped = word.replace(/[.*+?^${}()|[\\]\\\\]/g, "\\$&");
+        const regex = new RegExp(`\\b(${escaped})\\b`, "gi");
         snippet = snippet.replace(regex, "<mark>$1</mark>");
     }
     return snippet;
@@ -103,7 +111,6 @@ async function getDynamicCategories(): Promise<Array<{ name: string; count: numb
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
-    // Enable edge caching headers
     res.setHeader("Cache-Control", "s-maxage=3600, stale-while-revalidate=86400");
     res.setHeader("Access-Control-Allow-Origin", "*");
 
@@ -119,7 +126,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const category = (req.query.category as string) ?? undefined;
 
     const words = tokenize(q);
-
     const categories = await getDynamicCategories();
 
     if (words.length === 0) {
@@ -134,7 +140,21 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         });
     }
 
-    // Fast Indexed SQL Query: Fetch ONLY matching documents using DB indexes instead of scanning all 1,300+ docs
+    // Check for typo correction in query words
+    let didYouMean: string | null = null;
+    for (const w of words) {
+        if (w.length >= 4) {
+            for (const correctWord of KNOWN_VOCABULARY) {
+                if (levenshteinDistance(w, correctWord) === 1 || levenshteinDistance(w, correctWord) === 2) {
+                    didYouMean = q.replace(new RegExp(w, "i"), correctWord);
+                    break;
+                }
+            }
+        }
+        if (didYouMean) break;
+    }
+
+    // Build smart SQL query matching
     let querySql = "SELECT id, url, title, text, category FROM documents WHERE ";
     const queryArgs: string[] = [];
 
@@ -144,11 +164,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         queryArgs.push(category);
     }
 
-    // Match query terms in title, text, or category
     const wordConditions: string[] = [];
     for (const w of words) {
-        wordConditions.push("(title LIKE ? OR text LIKE ? OR category LIKE ?)");
-        queryArgs.push(`%${w}%`, `%${w}%`, `%${w}%`);
+        if (w.length === 1) {
+            // For single characters like 'c', match word boundaries to prevent matching every single letter in all words
+            wordConditions.push("(title LIKE ? OR title LIKE ? OR text LIKE ? OR text LIKE ?)");
+            queryArgs.push(`% ${w} %`, `${w} %`, `% ${w} %`, `${w} %`);
+        } else {
+            wordConditions.push("(title LIKE ? OR text LIKE ? OR category LIKE ?)");
+            queryArgs.push(`%${w}%`, `%${w}%`, `%${w}%`);
+        }
     }
     conditions.push(`(${wordConditions.join(" OR ")})`);
 
@@ -159,18 +184,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const N = docs.length;
 
     if (N === 0) {
-        // Find "Did You Mean" from sample docs if 0 results
-        let didYouMean: string | null = null;
-        for (const cat of categories) {
-            for (const w of words) {
-                if (levenshteinDistance(w, cat.name.toLowerCase()) === 1) {
-                    didYouMean = cat.name;
-                    break;
-                }
-            }
-            if (didYouMean) break;
-        }
-
         return res.status(200).json({
             q,
             mode,
@@ -182,7 +195,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         });
     }
 
-    // BM25 Ranking with Title Boost on the candidate set
+    // BM25 Ranking with Title Boost
     let totalLength = 0;
     const docTokenFreqs: Array<{
         doc: DocRow;
@@ -238,12 +251,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     for (const { doc, titleTokens, bodyFreqs, length } of docTokenFreqs) {
         let score = 0;
+        let matchedCount = 0;
 
         for (const w of words) {
             const tf = bodyFreqs[w] || 0;
             const inTitle = titleTokens.has(w);
 
             if (tf > 0 || inTitle) {
+                matchedCount++;
                 if (mode === "TF-IDF") {
                     score += (tf / length) * (idf[w] || 1);
                 } else {
@@ -253,7 +268,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
                 }
 
                 // Title Boost
-                if (inTitle) score += 5.0;
+                if (inTitle) score += 6.0;
 
                 // Category match boost
                 if (doc.category && doc.category.toLowerCase().includes(w)) score += 3.0;
@@ -261,7 +276,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             }
         }
 
-        // Phrase boost
+        // Exact multi-word phrase boost
         if (words.length > 1) {
             if (doc.title.toLowerCase().includes(lowerQuery)) score += 8.0;
             else if (doc.text.toLowerCase().includes(lowerQuery)) score += 4.0;
@@ -285,7 +300,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         q,
         mode,
         category: category ?? "All",
-        didYouMean: null,
+        didYouMean,
         count: scoredResults.length,
         categories,
         results: scoredResults.slice(0, 30),
