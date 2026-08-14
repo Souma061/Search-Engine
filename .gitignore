@@ -6,8 +6,7 @@ dist
 *.db
 *.db-journal
 
-# lockfiles: keep npm's package-lock.json
-pnpm-lock.yaml
+
 
 # IDE
 .idea/
