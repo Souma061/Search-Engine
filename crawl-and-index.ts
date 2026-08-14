@@ -6,46 +6,52 @@ const TURSO_URL = process.env.TURSO_DATABASE_URL?.trim();
 const TURSO_TOKEN = process.env.TURSO_AUTH_TOKEN?.trim();
 
 const SEED_URLS = [
-    // Angular
-    "https://angular.dev/overview",
-    "https://angular.dev/guide/components",
-    "https://angular.dev/guide/signals",
-    "https://angular.dev/guide/routing",
-    "https://angular.dev/guide/templates",
-    // React
+    // 🧠 AI / Machine Learning
+    "https://pytorch.org/docs/stable/index.html",
+    "https://huggingface.co/docs/transformers/index",
+    "https://python.langchain.com/docs/introduction",
+    "https://scikit-learn.org/stable/user_guide.html",
+
+    // ⚡ Frontend Frameworks
     "https://react.dev/reference/react",
-    "https://react.dev/learn",
-    // Vue
-    "https://vuejs.org/guide/introduction.html",
-    // MDN Web APIs & JavaScript
-    "https://developer.mozilla.org/en-US/docs/Web/API",
-    "https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference",
-    // Node.js
-    "https://nodejs.org/api/fs.html",
-    "https://nodejs.org/api/http.html",
-    // TypeScript
-    "https://www.typescriptlang.org/docs/handbook/intro.html",
-    // Python
-    "https://docs.python.org/3/tutorial/index.html",
-    // Express & Next.js
-    "https://expressjs.com/en/4x/api.html",
     "https://nextjs.org/docs",
-    // Tailwind CSS
+    "https://angular.dev/overview",
+    "https://vuejs.org/guide/introduction.html",
     "https://tailwindcss.com/docs/installation",
+
+    // 🐍 Languages & Core Runtimes
+    "https://docs.python.org/3/tutorial/index.html",
+    "https://www.typescriptlang.org/docs/handbook/intro.html",
+    "https://nodejs.org/api/fs.html",
+    "https://doc.rust-lang.org/book/title-page.html",
+    "https://go.dev/doc/tutorial/getting-started",
+
+    // 🛠️ Backend Frameworks & APIs
+    "https://fastapi.tiangolo.com/tutorial",
+    "https://expressjs.com/en/4x/api.html",
+    "https://developer.mozilla.org/en-US/docs/Web/API",
+
+    // 🐳 DevOps & Containers
+    "https://docs.docker.com/get-started",
+    "https://kubernetes.io/docs/concepts/overview",
+
+    // 🗄️ Databases
+    "https://www.postgresql.org/docs/current/intro-whatis.html",
+    "https://redis.io/docs/latest/develop/get-started",
 ];
 
 const config: CrawlConfig = {
-    maxPages: 100,
+    maxPages: 60,
     maxDepth: 2,
-    rateLimitMs: 400,
+    rateLimitMs: 300,
     timeoutMs: 8000,
     maxRetries: 2,
-    concurrency: 3,
+    concurrency: 4,
 };
 
 async function main() {
     console.log("==========================================");
-    console.log("🚀 Starting Automated Documentation Crawler");
+    console.log("🚀 Starting Multi-Branch Developer Crawler");
     console.log("==========================================");
 
     let store: any;
@@ -70,7 +76,7 @@ async function main() {
     }
 
     console.log("\n==========================================");
-    console.log("✅ Crawling complete! Database updated successfully.");
+    console.log("✅ Multi-branch crawl complete! Database updated.");
     console.log("==========================================");
 }
 

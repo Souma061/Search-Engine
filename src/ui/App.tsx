@@ -19,7 +19,25 @@ export type SearchResponse = {
     results: SearchResult[];
 };
 
-const CATEGORIES = ["All", "MDN", "React", "Angular", "Vue", "Node.js", "TypeScript", "Python", "Express", "Next.js", "Tailwind", "Docker"];
+const CATEGORIES = [
+    "All",
+    "AI / ML",
+    "React",
+    "Next.js",
+    "Angular",
+    "Vue",
+    "Python",
+    "TypeScript",
+    "Node.js",
+    "Rust",
+    "Go",
+    "FastAPI",
+    "Express",
+    "Tailwind",
+    "Docker",
+    "Kubernetes",
+    "Databases",
+];
 
 export function App() {
     const [query, setQuery] = useState("");
