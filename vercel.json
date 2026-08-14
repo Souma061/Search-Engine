@@ -1,8 +1,5 @@
 {
-  "buildCommand": "vite build",
-  "outputDirectory": "dist",
   "rewrites": [
-    { "source": "/search", "destination": "/api/search" },
-    { "source": "/(.*)", "destination": "/index.html" }
+    { "source": "/search", "destination": "/api/search.ts" }
   ]
 }
