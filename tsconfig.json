@@ -12,5 +12,5 @@
     "rewriteRelativeImportExtensions": true,
     "skipLibCheck": true
   },
-  "include": ["*.ts", "src/**/*.ts"]
+  "include": ["*.ts", "src/**/*.ts", "test/**/*.ts", "api/**/*.ts"]
 }
