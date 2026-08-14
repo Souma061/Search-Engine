@@ -11,10 +11,10 @@ import { fetchSitemap } from "./sitemap.ts";
 import { detectCategory } from "../indexer/category.ts";
 
 type DocumentSink = {
-    add(document: Document): void;
-    getMetadata?(id: string): DocumentMetadata | undefined;
-    touchCrawled?(id: string, statusCode?: number): void;
-    delete?(id: string): boolean;
+    add(document: Document): void | Promise<void>;
+    getMetadata?(id: string): DocumentMetadata | undefined | Promise<DocumentMetadata | undefined>;
+    touchCrawled?(id: string, statusCode?: number): void | Promise<void>;
+    delete?(id: string): boolean | Promise<boolean>;
 };
 
 export type CrawlConfig = {
@@ -72,7 +72,7 @@ export async function crawl(
         pagesReserved++;
         console.log(`Crawling: ${url}`);
 
-        const cachedMeta = documentStore.getMetadata?.(url);
+        const cachedMeta = await documentStore.getMetadata?.(url);
 
         let fetchResult;
 
@@ -93,14 +93,14 @@ export async function crawl(
         // 304 Not Modified: page is unchanged!
         if (fetchResult.status === 304) {
             console.log(`Unchanged (304): ${url}`);
-            documentStore.touchCrawled?.(url, 304);
+            await documentStore.touchCrawled?.(url, 304);
             return;
         }
 
         // 404 Found or 410 Gone: purge deleted page!
         if (fetchResult.status === 404 || fetchResult.status === 410) {
             console.log(`Purged deleted page (${fetchResult.status}): ${url}`);
-            documentStore.delete?.(url);
+            await documentStore.delete?.(url);
             return;
         }
 
@@ -125,7 +125,7 @@ export async function crawl(
             category: detectCategory(url),
         };
 
-        documentStore.add(document);
+        await documentStore.add(document);
 
         console.log(`Title: ${page.title}`);
         console.log(`Links found: ${page.links.length}`);

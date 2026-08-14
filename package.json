@@ -16,6 +16,7 @@
     "start": "node index.ts",
     "serve": "npx tsx search-api.ts",
     "seed": "npx tsx seed-demo.ts",
+    "crawl": "npx tsx crawl-and-index.ts",
     "test": "node --test test/*.test.ts",
     "test:jest": "NODE_OPTIONS=--experimental-vm-modules jest"
   },
