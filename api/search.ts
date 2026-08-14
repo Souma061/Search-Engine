@@ -131,6 +131,52 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     const docs = docsResult.rows as unknown as DocRow[];
+    const N = docs.length;
+
+    // Calculate document lengths and average document length (for BM25)
+    let totalLength = 0;
+    const docTokenFreqs: Array<{
+        doc: DocRow;
+        titleTokens: Set<string>;
+        bodyFreqs: Record<string, number>;
+        length: number;
+    }> = [];
+
+    // Document frequencies (DF) for each query term
+    const df: Record<string, number> = {};
+    for (const w of words) df[w] = 0;
+
+    for (const doc of docs) {
+        const bodyTokens = tokenize(doc.text);
+        const titleTokens = new Set(tokenize(doc.title));
+        const bodyFreqs: Record<string, number> = {};
+
+        for (const t of bodyTokens) {
+            bodyFreqs[t] = (bodyFreqs[t] || 0) + 1;
+        }
+
+        const length = bodyTokens.length || 1;
+        totalLength += length;
+
+        for (const w of words) {
+            if (bodyFreqs[w] || titleTokens.has(w)) {
+                df[w] = (df[w] || 0) + 1;
+            }
+        }
+
+        docTokenFreqs.push({ doc, titleTokens, bodyFreqs, length });
+    }
+
+    const avgdl = totalLength / (N || 1);
+    const k1 = 1.2;
+    const b = 0.75;
+
+    // Calculate IDF for words
+    const idf: Record<string, number> = {};
+    for (const w of words) {
+        const docCount = df[w] || 0;
+        idf[w] = Math.log(1 + (N - docCount + 0.5) / (docCount + 0.5));
+    }
 
     // Score documents
     const scoredResults: Array<{
@@ -142,15 +188,52 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         category: string;
     }> = [];
 
-    for (const doc of docs) {
-        const docTokens = tokenize(doc.title + " " + doc.text);
-        const docTokenSet = new Set(docTokens);
+    const lowerQuery = q.toLowerCase().trim();
+
+    for (const { doc, titleTokens, bodyFreqs, length } of docTokenFreqs) {
         let score = 0;
-        for (const word of words) {
-            if (docTokenSet.has(word)) {
-                score += 2.5;
+        let matchedTerms = 0;
+
+        for (const w of words) {
+            const tf = bodyFreqs[w] || 0;
+            const inTitle = titleTokens.has(w);
+
+            if (tf > 0 || inTitle) {
+                matchedTerms++;
+
+                if (mode === "TF-IDF") {
+                    score += (tf / length) * (idf[w] || 1);
+                } else {
+                    // BM25 scoring formula
+                    const numerator = tf * (k1 + 1);
+                    const denominator = tf + k1 * (1 - b + b * (length / avgdl));
+                    score += (idf[w] || 1) * (numerator / denominator);
+                }
+
+                // 🌟 TITLE BOOST: Matching the title gives a massive relevance boost!
+                if (inTitle) {
+                    score += 5.0;
+                }
+
+                // 🌟 URL / Category relevance boost
+                if (doc.category && doc.category.toLowerCase().includes(w)) {
+                    score += 3.0;
+                }
+                if (doc.url.toLowerCase().includes(w)) {
+                    score += 1.5;
+                }
             }
         }
+
+        // 🌟 EXACT PHRASE BOOST: If full multi-word query appears in title or text
+        if (words.length > 1) {
+            if (doc.title.toLowerCase().includes(lowerQuery)) {
+                score += 8.0;
+            } else if (doc.text.toLowerCase().includes(lowerQuery)) {
+                score += 4.0;
+            }
+        }
+
         if (score > 0) {
             scoredResults.push({
                 documentId: doc.id,
@@ -163,12 +246,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         }
     }
 
+    // Sort by highest relevance score first
     scoredResults.sort((a, b) => b.score - a.score);
 
     // Did you mean?
     let didYouMean: string | null = null;
     if (scoredResults.length === 0) {
-        for (const doc of docs) {
+        for (const { doc } of docTokenFreqs) {
             const allTokens = tokenize(doc.title + " " + doc.text);
             for (const t of allTokens) {
                 for (const w of words) {
