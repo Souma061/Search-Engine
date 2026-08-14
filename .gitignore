@@ -14,3 +14,7 @@ pnpm-lock.yaml
 .vscode/
 doubts-and-learnings.md
 .vercel
+
+# Environment secrets
+.env
+.env.local

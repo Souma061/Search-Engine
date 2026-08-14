@@ -1,21 +1,10 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
+import { createClient } from "@libsql/client";
 
-export type Document = {
-    id: string;
-    url: string;
-    title: string;
-    text: string;
-    category?: string;
-};
-
-export type SearchResult = {
-    documentId: string;
-    title: string;
-    url: string;
-    score: number;
-    snippet: string;
-    category?: string;
-};
+const db = createClient({
+    url: process.env.TURSO_DATABASE_URL!,
+    authToken: process.env.TURSO_AUTH_TOKEN!,
+});
 
 const STOP_WORDS = new Set([
     "a", "an", "and", "are", "as", "at", "be", "by", "for", "from",
@@ -76,59 +65,15 @@ function generateSnippet(text: string, queryWords: string[], windowSize = 160): 
     return snippet;
 }
 
-const documents: Document[] = [
-    {
-        id: "https://react.dev/reference/react/useState",
-        url: "https://react.dev/reference/react/useState",
-        title: "useState – React Docs",
-        text: "useState is a React Hook that lets you add state variables to functional components. Pass initial state to useState and call setFn to update value.",
-        category: "React",
-    },
-    {
-        id: "https://react.dev/reference/react/useMemo",
-        url: "https://react.dev/reference/react/useMemo",
-        title: "useMemo – React Docs",
-        text: "useMemo is a React Hook that lets you cache the result of a calculation between re-renders in functional components.",
-        category: "React",
-    },
-    {
-        id: "https://developer.mozilla.org/en-US/docs/Web/API/Fetch_API",
-        url: "https://developer.mozilla.org/en-US/docs/Web/API/Fetch_API",
-        title: "Fetch API - Web APIs | MDN",
-        text: "The Fetch API provides a JavaScript interface for accessing and manipulating parts of the HTTP protocol, such as requests and responses with async await.",
-        category: "MDN",
-    },
-    {
-        id: "https://nodejs.org/api/fs.html",
-        url: "https://nodejs.org/api/fs.html",
-        title: "File System | Node.js v20 API Documentation",
-        text: "The node:fs module enables interacting with the file system in a way modeled on standard POSIX functions. fs.readFile reads entire file asynchronously.",
-        category: "Node.js",
-    },
-    {
-        id: "https://www.typescriptlang.org/docs/handbook/2/generics.html",
-        url: "https://www.typescriptlang.org/docs/handbook/2/generics.html",
-        title: "Documentation - Generics | TypeScript",
-        text: "A major part of software engineering is building components that not only have well-defined and consistent APIs, but are also reusable using TypeScript generics.",
-        category: "TypeScript",
-    },
-    {
-        id: "https://expressjs.com/en/4x/api.html",
-        url: "https://expressjs.com/en/4x/api.html",
-        title: "Express 4.x API Reference",
-        text: "The app object conventionally denotes the Express application. Create it by calling the top-level express() function exported by the Express module.",
-        category: "Express",
-    },
-    {
-        id: "https://nextjs.org/docs/app/building-your-application/routing",
-        url: "https://nextjs.org/docs/app/building-your-application/routing",
-        title: "Routing: Getting Started | Next.js Docs",
-        text: "Next.js uses a file-system based router where folders define routes. Each folder in app directory represents a route segment mapped to URL path.",
-        category: "Next.js",
-    },
-];
+type DocRow = {
+    id: string;
+    url: string;
+    title: string;
+    text: string;
+    category: string | null;
+};
 
-export default function handler(req: VercelRequest, res: VercelResponse) {
+export default async function handler(req: VercelRequest, res: VercelResponse) {
     const q = (req.query.q as string) ?? "";
     const mode = (req.query.mode as string) ?? "BM25";
     const category = (req.query.category as string) ?? undefined;
@@ -138,13 +83,29 @@ export default function handler(req: VercelRequest, res: VercelResponse) {
         return res.status(200).json({ q, mode, category: category ?? "All", didYouMean: null, count: 0, results: [] });
     }
 
-    let filteredDocs = documents;
+    // Fetch all documents from Turso
+    let query = "SELECT id, url, title, text, category FROM documents";
+    const args: string[] = [];
+
     if (category) {
-        filteredDocs = documents.filter(d => d.category === category);
+        query += " WHERE category = ?";
+        args.push(category);
     }
 
-    const scoredResults: SearchResult[] = [];
-    for (const doc of filteredDocs) {
+    const result = await db.execute({ sql: query, args });
+    const docs = result.rows as unknown as DocRow[];
+
+    // Score documents
+    const scoredResults: Array<{
+        documentId: string;
+        title: string;
+        url: string;
+        score: number;
+        snippet: string;
+        category: string;
+    }> = [];
+
+    for (const doc of docs) {
         const docTokens = tokenize(doc.title + " " + doc.text);
         const docTokenSet = new Set(docTokens);
         let score = 0;
@@ -167,9 +128,10 @@ export default function handler(req: VercelRequest, res: VercelResponse) {
 
     scoredResults.sort((a, b) => b.score - a.score);
 
+    // Did you mean?
     let didYouMean: string | null = null;
     if (scoredResults.length === 0) {
-        for (const doc of documents) {
+        for (const doc of docs) {
             const allTokens = tokenize(doc.title + " " + doc.text);
             for (const t of allTokens) {
                 for (const w of words) {
