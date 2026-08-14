@@ -6,18 +6,38 @@ const TURSO_URL = process.env.TURSO_DATABASE_URL?.trim();
 const TURSO_TOKEN = process.env.TURSO_AUTH_TOKEN?.trim();
 
 const SEED_URLS = [
+    // Angular
+    "https://angular.dev/overview",
+    "https://angular.dev/guide/components",
+    "https://angular.dev/guide/signals",
+    "https://angular.dev/guide/routing",
+    "https://angular.dev/guide/templates",
+    // React
     "https://react.dev/reference/react",
+    "https://react.dev/learn",
+    // Vue
+    "https://vuejs.org/guide/introduction.html",
+    // MDN Web APIs & JavaScript
     "https://developer.mozilla.org/en-US/docs/Web/API",
+    "https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference",
+    // Node.js
     "https://nodejs.org/api/fs.html",
+    "https://nodejs.org/api/http.html",
+    // TypeScript
     "https://www.typescriptlang.org/docs/handbook/intro.html",
+    // Python
+    "https://docs.python.org/3/tutorial/index.html",
+    // Express & Next.js
     "https://expressjs.com/en/4x/api.html",
     "https://nextjs.org/docs",
+    // Tailwind CSS
+    "https://tailwindcss.com/docs/installation",
 ];
 
 const config: CrawlConfig = {
     maxPages: 100,
     maxDepth: 2,
-    rateLimitMs: 500,
+    rateLimitMs: 400,
     timeoutMs: 8000,
     maxRetries: 2,
     concurrency: 3,
