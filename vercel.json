@@ -2,6 +2,7 @@
   "buildCommand": "pnpm run ui:build",
   "outputDirectory": "dist",
   "rewrites": [
-    { "source": "/search", "destination": "/api/search" }
+    { "source": "/search", "destination": "/api/search.js" },
+    { "source": "/(.*)", "destination": "/index.html" }
   ]
 }

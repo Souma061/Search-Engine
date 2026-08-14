@@ -1,8 +1,6 @@
-import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { createSearchEngine } from "../src/engine/search-engine.ts";
-import type { Document } from "../src/indexer/document.ts";
 
-const documents: Document[] = [
+const documents = [
     {
         id: "https://react.dev/reference/react/useState",
         url: "https://react.dev/reference/react/useState",
@@ -56,10 +54,10 @@ const documents: Document[] = [
 
 const engine = createSearchEngine(documents);
 
-export default function handler(req: VercelRequest, res: VercelResponse) {
-    const q = (req.query.q as string) ?? "";
-    const mode = (req.query.mode as string) ?? "BM25";
-    const category = (req.query.category as string) ?? undefined;
+export default function handler(req, res) {
+    const q = req.query.q ?? "";
+    const mode = req.query.mode ?? "BM25";
+    const category = req.query.category ?? undefined;
 
     const results =
         mode === "TFIDF" ? engine.search(q, "OR", category) :
