@@ -1,7 +1,0 @@
-# Ignore SQLite native modules and CLI test scripts for Vercel Serverless
-src/store/sqlite-document-store.ts
-src/store/sqlite-index-store.ts
-search-api.ts
-seed-demo.ts
-index.ts
-test/
