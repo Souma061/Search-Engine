@@ -154,12 +154,12 @@ node index.ts     # BM25/TF-IDF breakdown over docs/1..4.txt
 **Phase 2 — Scale & correctness**
 - [x] Persist inverted index to SQLite (`src/store/sqlite-index-store.ts`).
 - [x] Incremental crawl: conditional HTTP requests (`ETag` / `Last-Modified` $\rightarrow$ `304 Not Modified`), purge 404s.
-- [ ] `sitemap.xml` + `Crawl-delay` support; per-host rate limiting.
+- [x] `sitemap.xml` Auto-Discovery (`src/crawler/sitemap.ts`).
 - [ ] Near-duplicate detection (content hash).
 
 **Phase 3 — Dev-focused search UX**
 - [x] Did-you-mean / typo tolerance (`src/retrieval/levenshtein.ts`).
-- [ ] Topic facets (JavaScript, React, Node, …) + paginated API.
+- [x] Topic facets & Category filtering (`MDN`, `React`, `Node.js`, `TypeScript`, `Express`, `Next.js`).
 - [ ] Query logging.
 
 Deliberately out of scope for now: vector/embedding retrieval, distributed

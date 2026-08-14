@@ -7,4 +7,5 @@ export type Document = {
     lastModified?: string;
     lastCrawledAt?: number;
     statusCode?: number;
+    category?: string;
 };

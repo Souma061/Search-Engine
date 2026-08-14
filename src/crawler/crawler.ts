@@ -7,6 +7,9 @@ import { RobotsChecker } from "./robots.ts";
 import { RateLimiter } from "./ratel-limiter.ts";
 import { WorkerPool } from "./worker-pool.ts";
 
+import { fetchSitemap } from "./sitemap.ts";
+import { detectCategory } from "../indexer/category.ts";
+
 type DocumentSink = {
     add(document: Document): void;
     getMetadata?(id: string): DocumentMetadata | undefined;
@@ -119,6 +122,7 @@ export async function crawl(
             lastModified: fetchResult.lastModified,
             lastCrawledAt: Date.now(),
             statusCode: 200,
+            category: detectCategory(url),
         };
 
         documentStore.add(document);
@@ -151,6 +155,14 @@ export async function crawl(
             pool.submit(() => crawlPage(normalizedUrl, depth + 1));
         }
     };
+
+    // Seed sitemap.xml URLs if available
+    const sitemapEntries = await fetchSitemap(seedUrl);
+    for (const entry of sitemapEntries) {
+        if (frontier.add(entry.url)) {
+            pool.submit(() => crawlPage(entry.url, 0));
+        }
+    }
 
     if (frontier.add(seedUrl)) {
         pool.submit(() => crawlPage(seedUrl, 0));

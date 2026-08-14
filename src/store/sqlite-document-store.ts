@@ -13,6 +13,7 @@ export type DocumentMetadata = {
     lastModified?: string;
     lastCrawledAt?: number;
     statusCode?: number;
+    category?: string;
 };
 
 export class SqliteDocumentStore {
@@ -29,8 +30,9 @@ export class SqliteDocumentStore {
                 etag TEXT,
                 last_modified TEXT,
                 last_crawled_at INTEGER,
-                status_code INTEGER DEFAULT 200
-            )
+                status_code INTEGER DEFAULT 200,
+                category TEXT DEFAULT 'General'
+            );
         `);
 
         // Migration helpers for existing databases
@@ -38,6 +40,9 @@ export class SqliteDocumentStore {
         this.ensureColumn("last_modified", "TEXT");
         this.ensureColumn("last_crawled_at", "INTEGER");
         this.ensureColumn("status_code", "INTEGER DEFAULT 200");
+        this.ensureColumn("category", "TEXT DEFAULT 'General'");
+
+        this.db.exec(`CREATE INDEX IF NOT EXISTS idx_category ON documents(category);`);
     }
 
     private ensureColumn(name: string, typeSql: string): void {
@@ -51,8 +56,8 @@ export class SqliteDocumentStore {
     add(document: Document): void {
         this.db.prepare(
             `INSERT OR REPLACE INTO documents 
-             (id, url, title, text, etag, last_modified, last_crawled_at, status_code) 
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+             (id, url, title, text, etag, last_modified, last_crawled_at, status_code, category) 
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         ).run(
             document.id,
             document.url,
@@ -62,14 +67,15 @@ export class SqliteDocumentStore {
             document.lastModified ?? null,
             document.lastCrawledAt ?? Date.now(),
             document.statusCode ?? 200,
+            document.category ?? "General",
         );
     }
 
     addMany(documents: Document[]): void {
         const insert = this.db.prepare(
             `INSERT OR REPLACE INTO documents 
-             (id, url, title, text, etag, last_modified, last_crawled_at, status_code) 
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+             (id, url, title, text, etag, last_modified, last_crawled_at, status_code, category) 
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         );
         for (const document of documents) {
             insert.run(
@@ -81,6 +87,7 @@ export class SqliteDocumentStore {
                 document.lastModified ?? null,
                 document.lastCrawledAt ?? Date.now(),
                 document.statusCode ?? 200,
+                document.category ?? "General",
             );
         }
     }
@@ -94,7 +101,7 @@ export class SqliteDocumentStore {
 
     getMetadata(id: string): DocumentMetadata | undefined {
         const row = this.db
-            .prepare("SELECT etag, last_modified, last_crawled_at, status_code FROM documents WHERE id = ?")
+            .prepare("SELECT etag, last_modified, last_crawled_at, status_code, category FROM documents WHERE id = ?")
             .get(id) as Record<string, unknown> | undefined;
 
         if (!row) return undefined;
@@ -104,7 +111,13 @@ export class SqliteDocumentStore {
             lastModified: row.last_modified ? String(row.last_modified) : undefined,
             lastCrawledAt: row.last_crawled_at ? Number(row.last_crawled_at) : undefined,
             statusCode: row.status_code ? Number(row.status_code) : undefined,
+            category: row.category ? String(row.category) : undefined,
         };
+    }
+
+    getByCategory(category: string): Document[] {
+        const rows = this.db.prepare("SELECT * FROM documents WHERE category = ?").all(category) as Record<string, unknown>[];
+        return rows.map((r) => this.rowToDocument(r));
     }
 
     touchCrawled(id: string, statusCode = 304): void {
@@ -141,6 +154,7 @@ export class SqliteDocumentStore {
             lastModified: row.last_modified ? String(row.last_modified) : undefined,
             lastCrawledAt: row.last_crawled_at ? Number(row.last_crawled_at) : undefined,
             statusCode: row.status_code ? Number(row.status_code) : undefined,
+            category: row.category ? String(row.category) : "General",
         };
     }
 }

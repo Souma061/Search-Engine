@@ -35,11 +35,12 @@ export type SearchResult = {
     url: string;
     score: number;
     snippet: string;
+    category?: string;
 };
 
 export type SearchEngine = {
-    search: (query: string, mode?: SearchMode) => SearchResult[];
-    searchBM25: (query: string, mode?: SearchMode) => SearchResult[];
+    search: (query: string, mode?: SearchMode, category?: string) => SearchResult[];
+    searchBM25: (query: string, mode?: SearchMode, category?: string) => SearchResult[];
     didYouMean: (query: string) => string | null;
     searchPhrase: (query: string) => PhraseResult[];
     rankPhrase: (query: string) => PhraseScore[];
@@ -96,6 +97,7 @@ export function createSearchEngine(documents: Document[]): SearchEngine {
                 url: document?.url ?? "",
                 score,
                 snippet: document?.text ? generateSnippet(document.text, words) : "",
+                category: document?.category ?? "General",
             };
         });
     };
@@ -119,21 +121,27 @@ export function createSearchEngine(documents: Document[]): SearchEngine {
     };
 
     return {
-        search(query, mode = "OR") {
+        search(query, mode = "OR", category?: string) {
             const words = expandTokens(tokenize(query));
             if (words.length === 0) {
                 return [];
             }
-            const docs = retrieveDocuments(index, words, mode);
+            let docs = retrieveDocuments(index, words, mode);
+            if (category) {
+                docs = docs.filter((id) => documentStore.get(id)?.category === category);
+            }
             const scores = scoreDocuments(totalDocs, index, documentStats, words, docs);
             return toSearchResults(scores, words);
         },
-        searchBM25(query, mode = "OR") {
+        searchBM25(query, mode = "OR", category?: string) {
             const words = expandTokens(tokenize(query));
             if (words.length === 0) {
                 return [];
             }
-            const docs = retrieveDocuments(index, words, mode);
+            let docs = retrieveDocuments(index, words, mode);
+            if (category) {
+                docs = docs.filter((id) => documentStore.get(id)?.category === category);
+            }
             const scores = scoreDocumentsBM25(totalDocs, averageDocumentLength, index, documentStats, words, docs);
             return toSearchResults(scores, words);
         },

@@ -17,7 +17,7 @@ describe("Search API Supertest", () => {
 
         // 1. Test GET / HTML UI endpoint
         const uiRes = await request(app).get("/").expect(200);
-        expect(uiRes.text).toContain("<title>Search</title>");
+        expect(uiRes.text).toContain("<title>DevDocs – Developer Search Engine</title>");
 
         // 2. Test GET /search JSON endpoint with BM25
         const searchRes = await request(app)
