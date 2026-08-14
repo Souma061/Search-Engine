@@ -1,5 +1,7 @@
 {
+  "buildCommand": "pnpm run ui:build",
+  "outputDirectory": "dist",
   "rewrites": [
-    { "source": "/search", "destination": "/api/search.ts" }
+    { "source": "/search", "destination": "/api/search" }
   ]
 }
