@@ -1,184 +1,221 @@
-# DevDocs Search Engine
+# 🔍 DevDocs — Developer Search Engine
 
-A developer-documentation-focused search engine, built from scratch in
-TypeScript. It crawls documentation sites (MDN, TypeScript, Node.js, React,
-Next.js, Vite, Express, …), builds an inverted index, and serves ranked search
-results over a small HTTP API — with no frameworks and a minimal dependency
-set (`cheerio` is the only runtime dep).
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.7-blue.svg?logo=typescript)](https://www.typescriptlang.org/)
+[![React 19](https://img.shields.io/badge/React-19.2-61dafb.svg?logo=react)](https://react.dev/)
+[![Vite](https://img.shields.io/badge/Vite-8.2-646CFF.svg?logo=vite)](https://vitejs.dev/)
+[![Turso](https://img.shields.io/badge/Database-Turso%20(libSQL)-00E699.svg?logo=sqlite)](https://turso.tech)
+[![Vercel](https://img.shields.io/badge/Deploy-Vercel-black.svg?logo=vercel)](https://vercel.com)
+[![Tests](https://img.shields.io/badge/Tests-28%2F28%20Passing-brightgreen.svg)]()
 
-Planned scopes:
+> A full-stack developer documentation search engine built from first principles in **TypeScript**. Crawls web documentation across **AI/ML**, **Frontend**, **Backend**, and **DevOps**, stores pages in **Turso (distributed libSQL)**, ranks queries with **Okapi BM25** + **Title Boost**, and serves instant results over a **Vercel Serverless API** with global **Edge CDN Caching**.
 
-```
-Zone: Web Development Documentation
-JavaScript / TypeScript
-    MDN, TypeScript, Node.js, React, Next.js, Vite, Express
-```
+🔗 **Live Production Demo**: [https://searchengine-jade.vercel.app](https://searchengine-jade.vercel.app)
 
-## Status
+---
 
-Working end-to-end vertical slice, 9/9 tests passing:
+## 📸 Overview
 
 ```
-crawl  →  store  →  index  →  rank  →  serve
-fetch     sqlite    inverted   bm25     http api
-+robot     /mem      index      tfidf    + html ui
+User Query: "what is python" or "autograd"
+                  │
+                  ▼
+┌─────────────────────────────────────────────────────────────┐
+│                   Vercel Edge Serverless                    │
+│   • Edge Cache Hit (<160ms) / SQL Filtering                 │
+│   • Smart Word Tokenization & Boundary Match                │
+│   • Did-You-Mean Typo Correction (Levenshtein Distance)     │
+│   • Okapi BM25 Ranking + Title & Category Affinity Boost    │
+└──────────────────────────────┬──────────────────────────────┘
+                               │
+                ┌──────────────┴──────────────┐
+                ▼                             ▼
+   Turso Cloud Database (libSQL)      Dynamic React 19 UI
+   • 1,300+ Indexed Documentation     • Glassmorphic Dark Mode
+   • Real-Time Category Aggregation   • Live Count Category Pills
+   • Daily GitHub Actions Cron        • Snippet <mark> Highlights
 ```
 
-Known gap: the tokenizer is not yet code-aware (see Roadmap). Dotted
-identifiers (`fs.readFile`), camelCase (`useState`), and versions are mangled.
+---
 
-## Architecture
+## ⚡ Key Engineering Features
 
-```
-┌───────────────────────────────────────────────────────────────┐
-│                         Crawler (src/crawler)                 │
-│  URLFrontier → RobotsChecker → RateLimiter → WorkerPool       │
-│    seed URL → bounded by maxPages / maxDepth                  │
-│  fetch(url, timeout, retries) → parse(cheerio) → Document     │
-└───────────────────────────┬───────────────────────────────────┘
-                            ▼
-                  DocumentStore (src/store)
-        DocumentStore (in-memory) | SqliteDocumentStore (node:sqlite)
-                            ▼
-                     buildIndex (src/indexer)
-   term → { documentFrequency, postings: { doc → {freq, positions} } }
-                        ＋ documentStats (length, maxFrequency)
-                            ▼
-                  createSearchEngine (src/engine)
-    retrieval (boolean AND/OR, phrase) ＋ ranking (BM25, TF-IDF)
-                            ▼
-                         Search API (search-api.ts)
-                       /search?q=..&mode=BM25|TFIDF|PHRASE
-```
+### 1. 🕸️ Multi-Worker Asynchronous Web Crawler
+* **Breadth-First Search (BFS)**: Uses FIFO worker queues to explore documentation level-by-level without getting stuck in deep crawler traps.
+* **Politeness & Safety**: Built-in token-bucket `RateLimiter` and automatic `robots.txt` compliance parser.
+* **Incremental Crawling**:
+  * Tracks `ETag` and `Last-Modified` headers to handle `HTTP 304 Not Modified` and avoid redundant processing.
+  * Purges dead pages automatically upon receiving `404 Not Found` or `410 Gone`.
+* **HTML Boilerplate Stripping**: Extracts links and text while discarding noise (`<nav>`, `<header>`, `<footer>`, `<aside>`, `<script>`, `<style>`).
+* **Sitemap Auto-Discovery**: Automatically parses `sitemap.xml` for URL discovery and change frequencies.
 
-### Crawler (`src/crawler/`)
+### 2. 🎯 Information Retrieval & Ranking Engine
+* **Okapi BM25 ($k_1=1.2, b=0.75$)**: Length-normalized term frequency scoring with smoothed inverse document frequency (IDF).
+* **Title & Category Boosting**: Multiplies weights (+5.0 – +10.0) when search terms appear in document `<title>`, category tags, or URL slugs.
+* **Multi-Word Phrase Matching**: Positional phrase checks and full-query phrase bonuses (+8.0).
+* **Smart Typo Tolerance ("Did you mean?")**: Calculates Levenshtein edit distance against the vocabulary to auto-suggest corrections.
+* **Word-Boundary Snippet Highlighting**: Extracts relevant sentence windows with `<mark>` tags strictly around matching words.
 
-- `url-frontier.ts` — dedupes URLs (normalized: strips trailing slash and
-  `index.html`, so `/` and `/index.html` count once).
-- `robots.ts` — parses `robots.txt` and blocks `Disallow` paths. Fetched once
-  per seed host; a missing file means "allow".
-- `ratel-limiter.ts` — global delay between requests (ms).
-- `worker-pool.ts` — fixed concurrency; respects `maxPages` by reserving a
-  page slot before each fetch.
-- `fetcher.ts` — fetch with timeout + retries; rejects when a non-HTML
-  content type is explicitly set.
-- `parser.ts` — `cheerio`: extracts `title`, `text`, and outbound links.
-- `crawler.ts` — orchestrates: seed → robots → BFS with host scope, `maxPages`,
-  `maxDepth`.
+### 3. ☁️ Cloud Infrastructure & Performance
+* **Turso Distributed Database (libSQL)**: Replaced ephemeral disk SQLite with cloud-hosted Turso DB located in Mumbai (AWS AP South).
+* **Automated Daily Crawling (GitHub Actions)**: Scheduled daily cron workflow (`.github/workflows/crawl.yml`) that automatically crawls fresh seeds and updates Turso.
+* **Sub-160ms Edge Caching**: Serverless function headers (`s-maxage=3600, stale-while-revalidate`) enable global CDN cache hits (`x-vercel-cache: HIT`).
+* **Database Indexes & SQL Pruning**: Targeted SQL `WHERE` queries prevent downloading megabytes of raw text across the wire.
 
-### Indexer (`src/indexer/`)
+### 4. 🎨 Dynamic, Self-Evolving React UI
+* **React 19 + TypeScript + Vite**: Responsive dark-mode interface.
+* **Zero Manual Category Configuration**: Categories and live document counts (e.g. `AI / ML (198)`, `Databases (118)`, `React (100)`) are dynamically aggregated from the database.
 
-- `tokenizer.ts` — lowercase, strip non-word chars, drop stop words.
-  ⚠️ Roadmap item: code-aware tokenization.
-- `inverted-index.ts` — term → postings with **positions**, enabling phrase
-  search; plus `documentStats` (length, max term frequency).
+---
 
-### Retrieval (`src/retrieval/`)
+## 📊 Live Indexed Documentation (1,300+ Pages)
 
-- `boolean.ts` — AND/OR over postings lists.
-- `phrase.ts` — positional phrase matching via `positions` + adjacency check.
-
-### Ranking (`src/ranking/`)
-
-Both scorers operate per query term, summed per document.
-
-- **TF-IDF**: augmented TF `0.5 + 0.5·(freq/maxFreq)` × smoothed IDF
-  `1 + ln(N/df)`.
-- **BM25**: k1 = 1.2, b = 0.75, length-normalized TF, non-negative smoothed
-  IDF `ln((N − df + 0.5)/(df + 0.5) + 1)`.
-- Phrase hits get a `PHRASE_WEIGHT = 1` bonus.
-
-### Storage (`src/store/`)
-
-- `document-store.ts` — in-memory `Map`.
-- `sqlite-document-store.ts` — SQLite via `node:sqlite` (`DatabaseSync`),
-  `INSERT OR REPLACE` by URL id. Persists documents only; the inverted index
-  is rebuilt in memory on each server start.
-
-### API (`search-api.ts`)
-
-Plain `node:http`. One page HTML UI + JSON endpoint:
-
-```
-GET /search?q=java+programming&mode=BM25
-→ { q, mode, count, results: [{documentId, title, url, score}] }
-```
-
-Modes: `BM25` (default), `TFIDF`, `PHRASE`.
-
-## Getting started
-
-Requires Node ≥ 22.5 (for `node:sqlite`); TS files run natively (type
-stripping — imports use explicit `.ts` extensions).
-
-```bash
-npm install
-
-# 1. Mirror a site and crawl it (or use the bundled crawler-test-site)
-npx serve crawler-test-site            # serves http://localhost:3000
-SEED_URL=http://localhost:3000 pnpm exec tsx crawl-db.ts
-# → writes index.db
-
-# 2. Serve search over the crawled docs
-pnpm exec tsx search-api.ts            # http://localhost:8080
-
-# 3. Tests (incl. end-to-end crawl→store→index→search)
-npm test
-npm run build    # tsc → dist/
-```
-
-Demo on canned documents:
-
-```bash
-node index.ts     # BM25/TF-IDF breakdown over docs/1..4.txt
-```
-
-## Scripts
-
-| Script | What |
+| Domain / Ecosystem | Frameworks & Sources |
 |---|---|
-| `npm run build` | `tsc` → `dist/` |
-| `npm start` | `node index.ts` demo |
-| `npm test` | `node --test test/*.test.ts` |
+| 🧠 **AI & Machine Learning** | PyTorch, LangChain, Hugging Face Transformers, Scikit-Learn |
+| ⚡ **Frontend Frameworks** | React, Next.js, Angular, Vue.js, Tailwind CSS |
+| 🐍 **Languages & Runtimes** | Python, TypeScript, Node.js, Rust, Go, C/C++, Web APIs (MDN) |
+| 🛠️ **Backend & DevOps** | FastAPI, Express, Docker, Kubernetes, PostgreSQL, Redis |
 
-## Roadmap
+---
 
-**Phase 1 — Core quality**
-- [x] Code-aware tokenizer: handles `fs.readFile`, camelCase splitting, version tags.
-- [x] Query-time synonym & alias expansion (`js→javascript`, `ts→typescript`, `react→reactjs`, `k8s→kubernetes`).
-- [x] HTML Boilerplate Stripping: strips `<nav>`, `<header>`, `<footer>`, `<aside>`, `<script>`, `<style>` while preserving full link discovery.
-- [x] Title field boost weighting (`TITLE_BOOST_WEIGHT = 2.0`).
-- [x] Result snippets with `<mark>` match highlighting.
-- [x] Porter stemmer / lemmatization (`src/indexer/stemmer.ts`).
+## 📁 Repository Structure
 
-**Phase 2 — Scale & correctness**
-- [x] Persist inverted index to SQLite (`src/store/sqlite-index-store.ts`).
-- [x] Incremental crawl: conditional HTTP requests (`ETag` / `Last-Modified` $\rightarrow$ `304 Not Modified`), purge 404s.
-- [x] `sitemap.xml` Auto-Discovery (`src/crawler/sitemap.ts`).
-- [ ] Near-duplicate detection (content hash).
+```
+.
+├── .github/workflows/
+│   └── crawl.yml                 # Automated daily GitHub Actions crawler
+├── api/
+│   └── search.ts                 # Vercel Serverless Function (BM25 + Edge Cache)
+├── src/
+│   ├── crawler/
+│   │   ├── crawler.ts            # Orchestrator (BFS crawl loop)
+│   │   ├── fetcher.ts            # HTTP client with timeouts, retries, 304 handling
+│   │   ├── parser.ts             # HTML content & link extractor (Cheerio)
+│   │   ├── ratel-limiter.ts      # Rate limiter per domain
+│   │   ├── robots.ts             # robots.txt validator
+│   │   ├── sitemap.ts            # sitemap.xml parser
+│   │   ├── url-frontier.ts       # URL deduplication and normalization
+│   │   └── worker-pool.ts        # Concurrency worker pool
+│   ├── engine/
+│   │   └── search-engine.ts      # In-memory search engine coordinator
+│   ├── indexer/
+│   │   ├── category.ts           # Dynamic domain/meta brand classifier
+│   │   ├── inverted-index.ts     # Postings lists with term positions
+│   │   ├── stemmer.ts            # Porter stemmer algorithm
+│   │   └── tokenizer.ts          # Code-aware tokenization & abbreviation expansion
+│   ├── ranking/
+│   │   ├── bm25.ts               # Okapi BM25 scoring formula
+│   │   └── tfidf.ts              # TF-IDF scoring formula
+│   ├── retrieval/
+│   │   ├── boolean.ts            # Boolean AND / OR retrieval
+│   │   ├── levenshtein.ts        # Typo tolerance & "Did you mean?"
+│   │   └── phrase.ts             # Positional phrase matching
+│   ├── store/
+│   │   ├── sqlite-document-store.ts  # Local SQLite store (node:sqlite)
+│   │   ├── sqlite-index-store.ts     # Persisted inverted index tables
+│   │   └── turso-document-store.ts   # Turso cloud database client
+│   └── ui/
+│       ├── App.tsx               # React 19 search UI component
+│       ├── App.css               # Dark-mode styling and layout
+│       └── main.tsx              # React DOM entrypoint
+├── crawl-and-index.ts            # Standalone multi-seed documentation crawl script
+├── search-api.ts                 # Local Node.js HTTP server
+├── index.db                      # Local SQLite database cache
+├── vercel.json                   # Vercel deployment routing & rewrites
+└── package.json                  # Dependencies and scripts
+```
 
-**Phase 3 — Dev-focused search UX**
-- [x] Did-you-mean / typo tolerance (`src/retrieval/levenshtein.ts`).
-- [x] Topic facets & Category filtering (`MDN`, `React`, `Node.js`, `TypeScript`, `Express`, `Next.js`).
-- [ ] Query logging.
+---
 
-Deliberately out of scope for now: vector/embedding retrieval, distributed
-indexing.
+## 🚀 Getting Started Locally
 
-## Design notes
+### Prerequisites
+* **Node.js**: $\ge 22.0.0$
+* **pnpm**: $\ge 9.0.0$
 
-- Dependency-injected engine: `createSearchEngine(documents)` curries the
-  index, doc stats, and corpus lengths — no globals.
-- `SearchResult = {documentId, title, url, score}` — full text deliberately
-  kept out of results (moved to the snippet feature in the roadmap).
-- `IDF` guards `N = 0`; BM25 IDF is smoothed to stay non-negative.
+### 1. Installation
+```bash
+git clone https://github.com/Souma061/Search-Engine.git
+cd Search-Engine
+pnpm install
+```
 
-## Tests
+### 2. Environment Setup (Optional for Cloud DB)
+Create a `.env` file in the root directory:
+```env
+TURSO_DATABASE_URL=libsql://your-database.turso.io
+TURSO_AUTH_TOKEN=your-turso-token
+```
+*(If omitted, the crawler will automatically use the local SQLite file `index.db`)*
 
-- `test/search-engine.test.ts` — tokenizer, boolean retrieval, ranking,
-  phrase scoring.
-- `test/url-frontier.test.ts` — dedup + normalization.
-- `test/integration.test.ts` — end-to-end: test server → crawl → store →
-  index → `"java programming"` ranks `java.html` first; respects robots.txt
-  and fetch timeouts.
-- `test/test-*.ts` — standalone manual scripts for crawler/robots/ratelimiter.
+### 3. Run the Documentation Crawler
+```bash
+# Crawls seeds into Turso cloud DB or local index.db
+pnpm run crawl
+```
+
+### 4. Start the Frontend & API Server
+```bash
+# Start Vite development server (UI on http://localhost:5173)
+pnpm run dev
+
+# (Optional) Start standalone local HTTP API server
+pnpm run serve
+```
+
+---
+
+## 🧪 Testing Suite
+
+Run the comprehensive unit and integration test suite:
+
+```bash
+pnpm test
+```
+
+```
+✔ detectCategory detects framework from URL hostname (1.01ms)
+✔ search engine filters results by category (1.57ms)
+✔ incremental crawl handles 304 Not Modified and 404 Purging (56.81ms)
+✔ crawl → store → index → search end to end (561.63ms)
+✔ levenshteinDistance calculates correct edit operations (0.67ms)
+✔ suggestCorrection suggests closest indexed term for typos (0.96ms)
+✔ parsePage extracts links before stripping nav (13.47ms)
+✔ tokenize drops stop words (0.50ms)
+✔ AND search only returns docs with all terms (0.85ms)
+✔ phrase scoring ranks phrase matches first (0.49ms)
+✔ BM25 OR search returns sorted scores (1.14ms)
+✔ parseSitemap extracts loc URLs and lastmod timestamps (5.34ms)
+✔ generateSnippet extracts text window and highlights words (1.02ms)
+...
+ℹ tests 28 | pass 28 | fail 0
+```
+
+---
+
+## 📜 Available NPM Scripts
+
+| Script | Command | Description |
+|---|---|---|
+| `pnpm run dev` | `vite` | Starts Vite React frontend development server |
+| `pnpm run ui:build` | `vite build` | Compiles production React bundle into `dist/` |
+| `pnpm run crawl` | `tsx crawl-and-index.ts` | Runs multi-seed crawler and syncs to Turso/SQLite |
+| `pnpm run serve` | `tsx search-api.ts` | Runs standalone local HTTP search server |
+| `pnpm run seed` | `tsx seed-demo.ts` | Populates demo documents into `index.db` |
+| `pnpm test` | `node --test test/*.test.ts` | Runs Node.js native test runner |
+
+---
+
+## 🗺️ Roadmap & Future Enhancements
+
+- [x] **Phase 1**: Code-aware tokenizer, BM25 scoring, and Porter stemmer.
+- [x] **Phase 2**: Incremental crawling with HTTP 304 ETag validation and 404 purging.
+- [x] **Phase 3**: Turso distributed cloud database migration & Vercel Edge Serverless Functions.
+- [x] **Phase 4**: Automated daily GitHub Actions crawling pipeline.
+- [x] **Phase 5**: Dynamic self-evolving category taxonomy with live document count badges.
+- [ ] **Phase 6 (Upcoming)**: **AI Overview (AIO)** layer using Retrieval-Augmented Generation (RAG) to synthesize direct code answers and explanations from top retrieved snippets (Perplexity/Google-style).
+
+---
+
+## 📄 License
+MIT License. Free to use, study, and modify.
