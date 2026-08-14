@@ -13,3 +13,4 @@ pnpm-lock.yaml
 .idea/
 .vscode/
 doubts-and-learnings.md
+.vercel
