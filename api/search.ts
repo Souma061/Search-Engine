@@ -111,7 +111,7 @@ async function getDynamicCategories(): Promise<Array<{ name: string; count: numb
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
-    res.setHeader("Cache-Control", "s-maxage=3600, stale-while-revalidate=86400");
+    res.setHeader("Cache-Control", "s-maxage=60, stale-while-revalidate=300");
     res.setHeader("Access-Control-Allow-Origin", "*");
 
     const action = req.query.action as string | undefined;
