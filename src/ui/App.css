@@ -305,3 +305,93 @@ body {
     from { opacity: 0; transform: translateY(6px); }
     to { opacity: 1; transform: translateY(0); }
 }
+
+/* Rate Limit Banner */
+.rate-limit-banner {
+    background: rgba(242, 139, 130, 0.15);
+    border: 1px solid #ea4335;
+    border-radius: 8px;
+    color: #f28b82;
+    padding: 12px 16px;
+    margin: 16px 0;
+    font-size: 0.95rem;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+/* Pagination Bar */
+.pagination-bar {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 12px;
+    margin-top: 48px;
+    padding-top: 24px;
+    border-top: 1px solid #3c4043;
+}
+
+.page-nav-btn {
+    background: #303134;
+    color: #e8eaed;
+    border: 1px solid #5f6368;
+    border-radius: 8px;
+    padding: 8px 16px;
+    font-size: 0.88rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.page-nav-btn:hover:not(:disabled) {
+    background: #3c4043;
+    border-color: #8ab4f8;
+    color: #8ab4f8;
+}
+
+.page-nav-btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
+.page-numbers {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.page-num-btn {
+    background: transparent;
+    color: #bdc1c6;
+    border: 1px solid transparent;
+    border-radius: 8px;
+    min-width: 36px;
+    height: 36px;
+    padding: 0 8px;
+    font-size: 0.9rem;
+    font-weight: 500;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s ease;
+}
+
+.page-num-btn:hover {
+    background: #303134;
+    color: #8ab4f8;
+    border-color: #5f6368;
+}
+
+.page-num-btn.active {
+    background: #8ab4f8;
+    color: #202124;
+    font-weight: 700;
+    border-color: #8ab4f8;
+}
+
+.page-ellipsis {
+    color: #9aa0a6;
+    padding: 0 4px;
+    font-size: 0.9rem;
+}

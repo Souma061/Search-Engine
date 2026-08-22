@@ -1,9 +1,19 @@
-import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { createClient } from "@libsql/client";
+import type { VercelRequest, VercelResponse } from "@vercel/node";
+import * as fs from "node:fs";
+
+let tursoUrl = process.env.TURSO_DATABASE_URL?.trim();
+let tursoToken = process.env.TURSO_AUTH_TOKEN?.trim();
+
+if ((!tursoUrl || !tursoToken) && fs.existsSync(".env")) {
+    const env = fs.readFileSync(".env", "utf-8");
+    tursoUrl = tursoUrl || env.match(/TURSO_DATABASE_URL=(.*)/)?.[1]?.trim();
+    tursoToken = tursoToken || env.match(/TURSO_AUTH_TOKEN=(.*)/)?.[1]?.trim();
+}
 
 const db = createClient({
-    url: (process.env.TURSO_DATABASE_URL ?? "").trim(),
-    authToken: (process.env.TURSO_AUTH_TOKEN ?? "").trim(),
+    url: tursoUrl ?? "",
+    authToken: tursoToken ?? "",
 });
 
 const STOP_WORDS = new Set([
@@ -12,11 +22,11 @@ const STOP_WORDS = new Set([
     "was", "what", "when", "where", "who", "will", "with"
 ]);
 
-const KNOWN_VOCABULARY = [
-    "language", "javascript", "typescript", "python", "react", "angular", "vue",
-    "database", "function", "component", "variable", "middleware", "routing",
-    "hook", "signals", "compiler", "library", "framework", "tutorial"
-];
+// const KNOWN_VOCABULARY = [
+//     "language", "javascript", "typescript", "python", "react", "angular", "vue",
+//     "database", "function", "component", "variable", "middleware", "routing",
+//     "hook", "signals", "compiler", "library", "framework", "tutorial"
+// ];
 
 function tokenize(text: string): string[] {
     const rawTokens = text
@@ -72,6 +82,61 @@ function generateSnippet(text: string, queryWords: string[], windowSize = 160): 
     }
     return snippet;
 }
+let cachedVocabulary: Array<{ term: string; docCount: number }> | null = null;
+let lastVocabFetch = 0;
+
+async function getVocabulary(): Promise<Array<{ term: string; docCount: number }>> {
+    const now = Date.now();
+    if (cachedVocabulary && now - lastVocabFetch < 300_000) {
+        return cachedVocabulary;
+    }
+    try {
+        const res = await db.execute(
+            `SELECT term, doc as docCount
+            FROM docs_vocab
+            WHERE length(term) >= 3 AND doc >= 2
+            ORDER BY doc DESC
+            LIMIT 2000 `
+        );
+        cachedVocabulary = res.rows.map((row: any) => ({
+            term: String(row.term),
+            docCount: Number(row.docCount)
+        }));
+        lastVocabFetch = now;
+        return cachedVocabulary;
+    } catch (error) {
+        return cachedVocabulary || [];
+    }
+}
+async function suggestCorrectionDynamic(queryWord: string): Promise<string | null> {
+    const word = queryWord.toLowerCase();
+    const vocab = await getVocabulary();
+
+    const existing = vocab.find((entry) => entry.term === word);
+    if (existing && existing.docCount > 5) {
+        return null;
+    }
+    let bestMatch: string | null = null;
+    let minDistance = 3;
+    let maxDocFreq = 0;
+
+    for (const item of vocab) {
+        if (Math.abs(item.term.length - word.length) > 2) continue;
+        const dist = levenshteinDistance(word, item.term);
+        if (dist <= 2) {
+            if (dist < minDistance || (dist === minDistance && item.docCount > maxDocFreq)) {
+                minDistance = dist;
+                bestMatch = item.term;
+                maxDocFreq = item.docCount;
+            }
+        }
+    }
+    if (bestMatch && minDistance <= 2) {
+        return bestMatch;
+    }
+    return null;
+}
+
 
 type DocRow = {
     id: string;
@@ -92,11 +157,11 @@ async function getDynamicCategories(): Promise<Array<{ name: string; count: numb
     }
     try {
         const res = await db.execute(`
-            SELECT category, COUNT(*) as count 
-            FROM documents 
+            SELECT category, COUNT(*) as count
+            FROM documents
             WHERE category IS NOT NULL AND category != ''
-            GROUP BY category 
-            ORDER BY count DESC 
+            GROUP BY category
+            ORDER BY count DESC
             LIMIT 25
         `);
         cachedCategories = res.rows.map((row: any) => ({
@@ -110,9 +175,67 @@ async function getDynamicCategories(): Promise<Array<{ name: string; count: numb
     }
 }
 
+// ── In-Memory Sliding Window Rate Limiter ────────────────────────────────────
+type RateLimitRecord = {
+    count: number;
+    resetTime: number;
+};
+
+const ipRateLimits = new Map<string, RateLimitRecord>();
+const RATE_LIMIT_WINDOW_MS = 60_000; // 1 minute
+const MAX_REQUESTS_PER_WINDOW = 60;  // Max 60 requests/minute per client IP
+
+function checkRateLimit(ip: string): { allowed: boolean; remaining: number; retryAfterSec: number } {
+    const now = Date.now();
+
+    // Lazy cleanup of expired IPs if tracking map grows large
+    if (ipRateLimits.size > 1000) {
+        for (const [k, rec] of ipRateLimits.entries()) {
+            if (now > rec.resetTime) ipRateLimits.delete(k);
+        }
+    }
+
+    const record = ipRateLimits.get(ip);
+
+    if (!record || now > record.resetTime) {
+        ipRateLimits.set(ip, { count: 1, resetTime: now + RATE_LIMIT_WINDOW_MS });
+        return { allowed: true, remaining: MAX_REQUESTS_PER_WINDOW - 1, retryAfterSec: 0 };
+    }
+
+    if (record.count >= MAX_REQUESTS_PER_WINDOW) {
+        const retryAfterSec = Math.max(1, Math.ceil((record.resetTime - now) / 1000));
+        return { allowed: false, remaining: 0, retryAfterSec };
+    }
+
+    record.count++;
+    return {
+        allowed: true,
+        remaining: MAX_REQUESTS_PER_WINDOW - record.count,
+        retryAfterSec: 0,
+    };
+}
+
 export default async function handler(req: VercelRequest, res: VercelResponse) {
-    res.setHeader("Cache-Control", "s-maxage=60, stale-while-revalidate=300");
+    res.setHeader("Cache-Control", "s-maxage=30, stale-while-revalidate=120");
     res.setHeader("Access-Control-Allow-Origin", "*");
+
+    // ── 1. Client IP & Rate Limiting Guard ─────────────────────────────────
+    const forwarded = req.headers["x-forwarded-for"];
+    const ip = typeof forwarded === "string"
+        ? forwarded.split(",")[0].trim()
+        : (req.socket?.remoteAddress || "127.0.0.1");
+
+    const rate = checkRateLimit(ip);
+    res.setHeader("X-RateLimit-Limit", String(MAX_REQUESTS_PER_WINDOW));
+    res.setHeader("X-RateLimit-Remaining", String(rate.remaining));
+
+    if (!rate.allowed) {
+        res.setHeader("Retry-After", String(rate.retryAfterSec));
+        return res.status(429).json({
+            error: "Too many requests. Please slow down.",
+            retryAfterSec: rate.retryAfterSec,
+        });
+    }
 
     const action = req.query.action as string | undefined;
 
@@ -121,9 +244,23 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         return res.status(200).json({ categories });
     }
 
-    const q = (req.query.q as string) ?? "";
+    let q = ((req.query.q as string) ?? "").trim();
+
+    // ── 2. Input Validation (DoS & abuse protection) ───────────────────────
+    if (q.length > 200) {
+        return res.status(400).json({
+            error: "Query too long. Maximum allowed length is 200 characters.",
+        });
+    }
+
     const mode = (req.query.mode as string) ?? "BM25";
     const category = (req.query.category as string) ?? undefined;
+
+    // ── 3. Pagination Inputs ──────────────────────────────────────────────
+    const rawPage = Number(req.query.page);
+    const rawLimit = Number(req.query.limit);
+    const page = Number.isInteger(rawPage) && rawPage > 0 ? Math.min(rawPage, 1000) : 1;
+    const limit = Number.isInteger(rawLimit) && rawLimit > 0 ? Math.min(rawLimit, 50) : 10;
 
     const words = tokenize(q);
     const categories = await getDynamicCategories();
@@ -135,6 +272,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             category: category ?? "All",
             didYouMean: null,
             count: 0,
+            page,
+            limit,
+            totalPages: 0,
             categories,
             results: [],
         });
@@ -144,40 +284,44 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     let didYouMean: string | null = null;
     for (const w of words) {
         if (w.length >= 4) {
-            for (const correctWord of KNOWN_VOCABULARY) {
-                if (levenshteinDistance(w, correctWord) === 1 || levenshteinDistance(w, correctWord) === 2) {
-                    didYouMean = q.replace(new RegExp(w, "i"), correctWord);
-                    break;
-                }
+            const suggestions = await suggestCorrectionDynamic(w);
+            if (suggestions && suggestions !== w) {
+                didYouMean = q.replace(new RegExp(`\\b${w}\\b`, "i"), suggestions);
+                break;
             }
         }
-        if (didYouMean) break;
     }
 
-    // Build smart SQL query matching
-    let querySql = "SELECT id, url, title, text, category FROM documents WHERE ";
-    const queryArgs: string[] = [];
+    // ── FTS5 full-text query (index lookup, not a full table scan) ──────────
+    // Escape special FTS5 characters in each token and join with OR.
+    const escapeFts = (w: string) => `"${w.replace(/"/g, '""')}"`;
+    const ftsExpr = words.map(escapeFts).join(" OR ");
 
-    const conditions: string[] = [];
+    let querySql: string;
+    const queryArgs: string[] = [ftsExpr];
+
     if (category && category !== "All") {
-        conditions.push("category = ?");
+        // Filter by category via a JOIN back to the real table
+        querySql = `
+            SELECT d.id, d.url, d.title, d.text, d.category
+            FROM docs_fts
+            JOIN documents d ON docs_fts.rowid = d.rowid
+            WHERE docs_fts MATCH ?
+              AND d.category = ?
+            ORDER BY docs_fts.rank
+            LIMIT 120
+        `;
         queryArgs.push(category);
+    } else {
+        querySql = `
+            SELECT d.id, d.url, d.title, d.text, d.category
+            FROM docs_fts
+            JOIN documents d ON docs_fts.rowid = d.rowid
+            WHERE docs_fts MATCH ?
+            ORDER BY docs_fts.rank
+            LIMIT 120
+        `;
     }
-
-    const wordConditions: string[] = [];
-    for (const w of words) {
-        if (w.length === 1) {
-            // For single characters like 'c', match word boundaries to prevent matching every single letter in all words
-            wordConditions.push("(title LIKE ? OR title LIKE ? OR text LIKE ? OR text LIKE ?)");
-            queryArgs.push(`% ${w} %`, `${w} %`, `% ${w} %`, `${w} %`);
-        } else {
-            wordConditions.push("(title LIKE ? OR text LIKE ? OR category LIKE ?)");
-            queryArgs.push(`%${w}%`, `%${w}%`, `%${w}%`);
-        }
-    }
-    conditions.push(`(${wordConditions.join(" OR ")})`);
-
-    querySql += conditions.join(" AND ") + " LIMIT 120";
 
     const docsResult = await db.execute({ sql: querySql, args: queryArgs });
     const docs = docsResult.rows as unknown as DocRow[];
@@ -296,13 +440,21 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     scoredResults.sort((a, b) => b.score - a.score);
 
+    const totalResults = scoredResults.length;
+    const totalPages = Math.ceil(totalResults / limit);
+    const startIndex = (page - 1) * limit;
+    const paginatedResults = scoredResults.slice(startIndex, startIndex + limit);
+
     res.status(200).json({
         q,
         mode,
         category: category ?? "All",
         didYouMean,
-        count: scoredResults.length,
+        count: totalResults,
+        page,
+        limit,
+        totalPages,
         categories,
-        results: scoredResults.slice(0, 30),
+        results: paginatedResults,
     });
 }

@@ -25,17 +25,72 @@ export class TursoDocumentStore {
                 category TEXT DEFAULT 'General'
             );
         `);
-        try {
-            await this.client.execute(`CREATE INDEX IF NOT EXISTS idx_category ON documents(category);`);
-        } catch {
-            // Index already exists
-        }
+
+        // Regular B-tree index for category filtering
+        await this.client.execute(
+            `CREATE INDEX IF NOT EXISTS idx_category ON documents(category);`
+        );
+
+        // FTS5 virtual table — inverted index for fast full-text search
+        await this.client.execute(`
+            CREATE VIRTUAL TABLE IF NOT EXISTS docs_fts USING fts5(
+                id   UNINDEXED,
+                url  UNINDEXED,
+                title,
+                text,
+                category UNINDEXED,
+                content='documents',
+                content_rowid='rowid',
+                tokenize='unicode61 remove_diacritics 1'
+            );
+        `);
+
+        await this.client.execute(
+            `CREATE VIRTUAL TABLE IF NOT EXISTS docs_vocab USING fts5vocab('docs_fts','row');`
+        )
+
+        // Triggers to keep docs_fts in sync with documents table
+        await this.client.execute(`
+            CREATE TRIGGER IF NOT EXISTS docs_fts_insert
+            AFTER INSERT ON documents BEGIN
+                INSERT INTO docs_fts(rowid, id, url, title, text, category)
+                VALUES (new.rowid, new.id, new.url, new.title, new.text, new.category);
+            END;
+        `);
+
+        await this.client.execute(`
+            CREATE TRIGGER IF NOT EXISTS docs_fts_update
+            AFTER UPDATE ON documents BEGIN
+                INSERT INTO docs_fts(docs_fts, rowid, id, url, title, text, category)
+                VALUES ('delete', old.rowid, old.id, old.url, old.title, old.text, old.category);
+                INSERT INTO docs_fts(rowid, id, url, title, text, category)
+                VALUES (new.rowid, new.id, new.url, new.title, new.text, new.category);
+            END;
+        `);
+
+        await this.client.execute(`
+            CREATE TRIGGER IF NOT EXISTS docs_fts_delete
+            AFTER DELETE ON documents BEGIN
+                INSERT INTO docs_fts(docs_fts, rowid, id, url, title, text, category)
+                VALUES ('delete', old.rowid, old.id, old.url, old.title, old.text, old.category);
+            END;
+        `);
+    }
+
+    /**
+     * Rebuilds the FTS index from scratch.
+     * Call this once after the initial crawl if documents were inserted
+     * before the FTS table existed (i.e. first-time migration).
+     */
+    async rebuildFts(): Promise<void> {
+        await this.client.execute(`INSERT INTO docs_fts(docs_fts) VALUES('rebuild');`);
+        console.log("✅ FTS5 index rebuilt from documents table.");
     }
 
     async add(document: Document): Promise<void> {
         await this.client.execute({
-            sql: `INSERT OR REPLACE INTO documents 
-                 (id, url, title, text, etag, last_modified, last_crawled_at, status_code, category) 
+            sql: `INSERT OR REPLACE INTO documents
+                 (id, url, title, text, etag, last_modified, last_crawled_at, status_code, category)
                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             args: [
                 document.id,

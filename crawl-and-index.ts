@@ -75,6 +75,11 @@ async function main() {
         }
     }
 
+    console.log("\n\uD83D\uDD04 Rebuilding FTS5 full-text search index...");
+    if (TURSO_URL && TURSO_TOKEN) {
+        await (store as TursoDocumentStore).rebuildFts();
+    }
+
     console.log("\n==========================================");
     console.log("✅ Multi-branch crawl complete! Database updated.");
     console.log("==========================================");

@@ -99,3 +99,4 @@ export function buildIndex(documents: Document[]): SearchIndex {
 
     return {index, documentStats};
 }
+
