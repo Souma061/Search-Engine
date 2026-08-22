@@ -1,4 +1,4 @@
-import {RateLimiter} from "../src/crawler/ratel-limiter.ts";
+import {RateLimiter} from "../src/crawler/rate-limiter.ts";
 
 const limiter = new RateLimiter(1000);
 

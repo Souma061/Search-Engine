@@ -22,12 +22,6 @@ const STOP_WORDS = new Set([
     "was", "what", "when", "where", "who", "will", "with"
 ]);
 
-// const KNOWN_VOCABULARY = [
-//     "language", "javascript", "typescript", "python", "react", "angular", "vue",
-//     "database", "function", "component", "variable", "middleware", "routing",
-//     "hook", "signals", "compiler", "library", "framework", "tutorial"
-// ];
-
 function tokenize(text: string): string[] {
     const rawTokens = text
         .toLowerCase()

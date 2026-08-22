@@ -2,6 +2,18 @@ import { createClient, type Client } from "@libsql/client";
 import type { Document } from "../indexer/document.ts";
 import type { DocumentMetadata } from "./sqlite-document-store.ts";
 
+export type DocumentRow = {
+    id: string;
+    url: string;
+    title: string;
+    text: string;
+    etag: string | null;
+    last_modified: string | null;
+    last_crawled_at: number | null;
+    status_code: number | null;
+    category: string | null;
+};
+
 export class TursoDocumentStore {
     private readonly client: Client;
 
@@ -47,7 +59,7 @@ export class TursoDocumentStore {
 
         await this.client.execute(
             `CREATE VIRTUAL TABLE IF NOT EXISTS docs_vocab USING fts5vocab('docs_fts','row');`
-        )
+        );
 
         // Triggers to keep docs_fts in sync with documents table
         await this.client.execute(`
@@ -107,9 +119,25 @@ export class TursoDocumentStore {
     }
 
     async addMany(documents: Document[]): Promise<void> {
-        for (const doc of documents) {
-            await this.add(doc);
-        }
+        if (documents.length === 0) return;
+
+        const statements = documents.map((doc) => ({
+            sql: `INSERT OR REPLACE INTO documents
+            (id, url, title, text, etag, last_modified, last_crawled_at, status_code, category)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            args: [
+                doc.id,
+                doc.url,
+                doc.title,
+                doc.text,
+                doc.etag ?? null,
+                doc.lastModified ?? null,
+                doc.lastCrawledAt ?? Date.now(),
+                doc.statusCode ?? 200,
+                doc.category ?? "General",
+            ],
+        }));
+        await this.client.batch(statements, "write");
     }
 
     async getMetadata(id: string): Promise<DocumentMetadata | undefined> {
@@ -119,19 +147,13 @@ export class TursoDocumentStore {
         });
 
         if (result.rows.length === 0) return undefined;
-        const row = result.rows[0] as unknown as {
-            etag: string | null;
-            last_modified: string | null;
-            last_crawled_at: number | null;
-            status_code: number | null;
-            category: string | null;
-        };
+        const row = result.rows[0] as unknown as DocumentRow;
 
         return {
             etag: row.etag ?? undefined,
             lastModified: row.last_modified ?? undefined,
-            lastCrawledAt: row.last_crawled_at ?? undefined,
-            statusCode: row.status_code ?? undefined,
+            lastCrawledAt: row.last_crawled_at ? Number(row.last_crawled_at) : undefined,
+            statusCode: row.status_code ? Number(row.status_code) : undefined,
             category: row.category ?? undefined,
         };
     }
@@ -152,17 +174,22 @@ export class TursoDocumentStore {
     }
 
     async getAll(): Promise<Document[]> {
-        const result = await this.client.execute(`SELECT id, url, title, text, etag, last_modified, last_crawled_at, status_code, category FROM documents`);
-        return result.rows.map((row: any) => ({
+        const result = await this.client.execute(
+            `SELECT id, url, title, text, etag, last_modified, last_crawled_at, status_code, category FROM documents`
+        );
+        const rows = result.rows as unknown as DocumentRow[];
+
+        return rows.map((row) => ({
             id: row.id,
             url: row.url,
             title: row.title,
             text: row.text,
             etag: row.etag ?? undefined,
             lastModified: row.last_modified ?? undefined,
-            lastCrawledAt: row.last_crawled_at ?? undefined,
-            statusCode: row.status_code ?? undefined,
-            category: row.category ?? undefined,
+            lastCrawledAt: row.last_crawled_at ? Number(row.last_crawled_at) : undefined,
+            statusCode: row.status_code ? Number(row.status_code) : undefined,
+            category: row.category ?? "General",
         }));
     }
 }
+

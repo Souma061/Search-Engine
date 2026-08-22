@@ -53,7 +53,10 @@ async function fetchPageOnce(
         controller.abort();
     }, timeoutMs);
 
-    const headers: Record<string, string> = {};
+    const headers: Record<string, string> = {
+        "User-Agent": "DevDocsBot/1.0 (+https://github.com/Souma061/Search-Engine; developer documentation crawler)",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    };
     if (options.etag) {
         headers["If-None-Match"] = options.etag;
     }

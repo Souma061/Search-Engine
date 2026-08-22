@@ -4,7 +4,7 @@ import { parsePage } from "./parser.ts";
 import type { Document } from "../indexer/document.ts";
 import type { DocumentMetadata } from "../store/sqlite-document-store.ts";
 import { RobotsChecker } from "./robots.ts";
-import { RateLimiter } from "./ratel-limiter.ts";
+import { RateLimiter } from "./rate-limiter.ts";
 import { WorkerPool } from "./worker-pool.ts";
 
 import { fetchSitemap } from "./sitemap.ts";

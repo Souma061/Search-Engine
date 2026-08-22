@@ -69,17 +69,6 @@ export function createSearchEngine(documents: Document[]): SearchEngine {
     const documentStore = new DocumentStore();
     documentStore.addMany(documents);
 
-    // const toSearchResults = (scores: Record<string, number>): SearchResult[] =>
-    //     rankResults(scores).map(([documentId, score]) => {
-    //         const document = documentStore.get(documentId);
-    //         return {
-    //             documentId,
-    //             title: document?.title ?? documentId,
-    //             url: document?.url ?? "",
-    //             score,
-    //         };
-    //     });
-
     const toSearchResults = (scores: Record<string, number>, words: string[]): SearchResult[] => {
         const boostedScores: Record<string, number> = {};
 
