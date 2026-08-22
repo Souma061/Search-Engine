@@ -85,16 +85,15 @@ test("Error Handling: Invalid pagination values are safely sanitized", async () 
 
 test("Error Handling: Rate limiter triggers 429 on abuse", async () => {
     const testIp = "192.168.99.99";
-    const req: any = {
-        query: { q: "" },
-        headers: {},
-        socket: { remoteAddress: testIp },
-    };
-
     let hitRateLimit = false;
 
-    // Fire 65 requests rapidly from same IP
+    // Fire 65 requests rapidly from same IP with fresh request objects
     for (let i = 0; i < 65; i++) {
+        const req: any = {
+            query: { q: "" },
+            headers: { "x-forwarded-for": testIp },
+            socket: { remoteAddress: testIp },
+        };
         const res = createMockRes();
         await searchHandler(req, res);
         if (res.getStatus() === 429) {

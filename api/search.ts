@@ -214,10 +214,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     res.setHeader("Access-Control-Allow-Origin", "*");
 
     // ── 1. Client IP & Rate Limiting Guard ─────────────────────────────────
-    const forwarded = req.headers["x-forwarded-for"];
+    const forwarded = req.headers?.["x-forwarded-for"];
     const ip = typeof forwarded === "string"
         ? forwarded.split(",")[0].trim()
-        : (req.socket?.remoteAddress || "127.0.0.1");
+        : (req.socket?.remoteAddress || (req as any).connection?.remoteAddress || "127.0.0.1");
 
     const rate = checkRateLimit(ip);
     res.setHeader("X-RateLimit-Limit", String(MAX_REQUESTS_PER_WINDOW));
