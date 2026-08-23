@@ -1,5 +1,5 @@
 [
-  { "id": "pytorch-docs", "query": "pytorch documentation", "relevance": [{ "url": "https://pytorch.org/docs/stable/index.html", "grade": 3 }] },
+  { "id": "pytorch-docs", "query": "pytorch documentation", "relevance": [{ "url": "https://pytorch.org/docs/2.13/index.html", "grade": 3 }] },
   { "id": "transformers-docs", "query": "hugging face transformers", "relevance": [{ "url": "https://huggingface.co/docs/transformers/index", "grade": 3 }] },
   { "id": "langchain-intro", "query": "langchain introduction", "relevance": [{ "url": "https://python.langchain.com/docs/introduction", "grade": 3 }] },
   { "id": "scikit-learn-guide", "query": "scikit learn user guide", "relevance": [{ "url": "https://scikit-learn.org/stable/user_guide.html", "grade": 3 }] },

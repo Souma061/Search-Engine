@@ -32,7 +32,15 @@ export function stem(word: string): string {
 
     // Step 1b: Common verbal and adjectival suffixes
     if (w.endsWith("ing") && w.length > 5) {
-        w = w.slice(0, -3);
+        const base = w.slice(0, -3); // e.g. "gett", "start", "serv"
+        // Doubled-consonant rule: "getting" → "get", "running" → "run"
+        const last = base[base.length - 1];
+        const prev = base[base.length - 2];
+        if (base.length >= 3 && last === prev && /[bcdfghjklmnpqrstvwxyz]/.test(last)) {
+            w = base.slice(0, -1); // drop the doubled consonant
+        } else {
+            w = base;
+        }
     } else if (w.endsWith("ed") && w.length > 4) {
         w = w.slice(0, -2);
     } else if (w.endsWith("ly") && w.length > 4) {

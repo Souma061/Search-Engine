@@ -25,6 +25,7 @@ const delayMs = Number(process.env.EVAL_REQUEST_DELAY_MS ?? 1_100);
 function normalizeUrl(value: string): string {
     const url = new URL(value);
     url.hash = "";
+    url.pathname = url.pathname.replace(/\/$/, ""); // strip trailing slash
     return url.toString();
 }
 

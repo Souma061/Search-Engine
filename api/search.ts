@@ -1,6 +1,7 @@
 import { createClient, type Client } from "@libsql/client";
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import * as fs from "node:fs";
+import { stem } from "../src/indexer/stemmer.ts";
 
 let tursoUrl = process.env.TURSO_DATABASE_URL?.trim();
 let tursoToken = process.env.TURSO_AUTH_TOKEN?.trim();
@@ -31,10 +32,13 @@ function tokenize(text: string): string[] {
         .split(/[^a-z0-9+#.]+/);
 
     const tokens: string[] = [];
+    const seen = new Set<string>();
     for (const token of rawTokens) {
         if (!token) continue;
         if (STOP_WORDS.has(token)) continue;
-        tokens.push(token);
+        if (!seen.has(token)) { seen.add(token); tokens.push(token); }
+        const stemmed = stem(token);
+        if (stemmed !== token && !seen.has(stemmed)) { seen.add(stemmed); tokens.push(stemmed); }
     }
     return tokens;
 }
@@ -149,6 +153,32 @@ export function matchesPhrase(document: Pick<DocRow, "title" | "text">, phrase: 
     return document.title.toLocaleLowerCase().includes(normalizedPhrase)
         || document.text.toLocaleLowerCase().includes(normalizedPhrase);
 }
+
+// Domain boost: when query contains a known tech name, pages from that domain score higher
+const DOMAIN_BOOST: Array<{ terms: string[]; domain: string }> = [
+    { terms: ["pytorch"],    domain: "pytorch.org" },
+    { terms: ["nextjs", "next"],     domain: "nextjs.org" },
+    { terms: ["angular"],   domain: "angular.dev" },
+    { terms: ["vue"],       domain: "vuejs.org" },
+    { terms: ["tailwind"],  domain: "tailwindcss.com" },
+    { terms: ["react"],     domain: "react.dev" },
+    { terms: ["typescript"],domain: "typescriptlang.org" },
+    { terms: ["node"],      domain: "nodejs.org" },
+    { terms: ["rust"],      domain: "doc.rust-lang.org" },
+    { terms: ["fastapi"],   domain: "fastapi.tiangolo.com" },
+    { terms: ["express"],   domain: "expressjs.com" },
+    { terms: ["docker"],    domain: "docs.docker.com" },
+    { terms: ["kubernetes"],domain: "kubernetes.io" },
+    { terms: ["postgresql", "postgres"], domain: "postgresql.org" },
+    { terms: ["redis"],     domain: "redis.io" },
+    { terms: ["python"],    domain: "docs.python.org" },
+    { terms: ["langchain"], domain: "python.langchain.com" },
+    { terms: ["scikit"],    domain: "scikit-learn.org" },
+    { terms: ["mdn"],       domain: "developer.mozilla.org/en-US" },
+    { terms: ["go"],        domain: "go.dev" },
+    { terms: ["hugging", "transformers"], domain: "huggingface.co" },
+];
+
 
 // In-memory cache for category aggregation (refreshed every 60s)
 let cachedCategories: Array<{ name: string; count: number }> | null = null;
@@ -306,29 +336,26 @@ export function createSearchHandler(database: SearchDatabase) {
 
     let querySql: string;
     const queryArgs: string[] = [ftsExpr];
+    const conditions: string[] = ["docs_fts MATCH ?"];
+
+    // Exclude non-English MDN pages (zh-CN, ja, zh-TW, fr, de, etc. outrank en-US)
+    conditions.push(
+        "(url NOT LIKE 'https://developer.mozilla.org/%' OR url LIKE 'https://developer.mozilla.org/en-US/%')"
+    );
 
     if (category && category !== "All") {
-        // Filter by category via a JOIN back to the real table
-        querySql = `
-            SELECT d.id, d.url, d.title, d.text, d.category
-            FROM docs_fts
-            JOIN documents d ON docs_fts.rowid = d.rowid
-            WHERE docs_fts MATCH ?
-              AND d.category = ?
-            ORDER BY docs_fts.rank
-            LIMIT 120
-        `;
+        conditions.push("d.category = ?");
         queryArgs.push(category);
-    } else {
-        querySql = `
-            SELECT d.id, d.url, d.title, d.text, d.category
-            FROM docs_fts
-            JOIN documents d ON docs_fts.rowid = d.rowid
-            WHERE docs_fts MATCH ?
-            ORDER BY docs_fts.rank
-            LIMIT 120
-        `;
     }
+    
+    querySql = `
+        SELECT d.id, d.url, d.title, d.text, d.category
+        FROM docs_fts
+        JOIN documents d ON docs_fts.rowid = d.rowid
+        WHERE ${conditions.join(" AND ")}
+        ORDER BY docs_fts.rank
+        LIMIT 120
+    `;
 
     const docsResult = await database.execute({ sql: querySql, args: queryArgs });
     const docs = docsResult.rows as unknown as DocRow[];
@@ -438,6 +465,14 @@ export function createSearchHandler(database: SearchDatabase) {
         }
 
         if (score > 0) {
+            // Domain boost: tech-specific queries should prefer on-domain results
+            for (const { terms, domain } of DOMAIN_BOOST) {
+                if (terms.some(t => words.includes(t)) && doc.url.includes(domain)) {
+                    score += 15.0;
+                    break;
+                }
+            }
+
             scoredResults.push({
                 documentId: doc.id,
                 title: doc.title,
