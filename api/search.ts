@@ -1,4 +1,4 @@
-import { createClient } from "@libsql/client";
+import { createClient, type Client } from "@libsql/client";
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import * as fs from "node:fs";
 
@@ -15,6 +15,8 @@ const db = createClient({
     url: tursoUrl ?? "",
     authToken: tursoToken ?? "",
 });
+
+export type SearchDatabase = Pick<Client, "execute">;
 
 const STOP_WORDS = new Set([
     "a", "an", "and", "are", "as", "at", "be", "by", "for", "from",
@@ -79,13 +81,13 @@ function generateSnippet(text: string, queryWords: string[], windowSize = 160): 
 let cachedVocabulary: Array<{ term: string; docCount: number }> | null = null;
 let lastVocabFetch = 0;
 
-async function getVocabulary(): Promise<Array<{ term: string; docCount: number }>> {
+async function getVocabulary(database: SearchDatabase): Promise<Array<{ term: string; docCount: number }>> {
     const now = Date.now();
     if (cachedVocabulary && now - lastVocabFetch < 300_000) {
         return cachedVocabulary;
     }
     try {
-        const res = await db.execute(
+        const res = await database.execute(
             `SELECT term, doc as docCount
             FROM docs_vocab
             WHERE length(term) >= 3 AND doc >= 2
@@ -102,9 +104,9 @@ async function getVocabulary(): Promise<Array<{ term: string; docCount: number }
         return cachedVocabulary || [];
     }
 }
-async function suggestCorrectionDynamic(queryWord: string): Promise<string | null> {
+async function suggestCorrectionDynamic(database: SearchDatabase, queryWord: string): Promise<string | null> {
     const word = queryWord.toLowerCase();
-    const vocab = await getVocabulary();
+    const vocab = await getVocabulary(database);
 
     const existing = vocab.find((entry) => entry.term === word);
     if (existing && existing.docCount > 5) {
@@ -140,17 +142,25 @@ type DocRow = {
     category: string | null;
 };
 
+export function matchesPhrase(document: Pick<DocRow, "title" | "text">, phrase: string): boolean {
+    const normalizedPhrase = phrase.toLocaleLowerCase().replace(/\s+/g, " ").trim();
+    if (!normalizedPhrase) return true;
+
+    return document.title.toLocaleLowerCase().includes(normalizedPhrase)
+        || document.text.toLocaleLowerCase().includes(normalizedPhrase);
+}
+
 // In-memory cache for category aggregation (refreshed every 60s)
 let cachedCategories: Array<{ name: string; count: number }> | null = null;
 let lastCategoryFetch = 0;
 
-async function getDynamicCategories(): Promise<Array<{ name: string; count: number }>> {
+async function getDynamicCategories(database: SearchDatabase): Promise<Array<{ name: string; count: number }>> {
     const now = Date.now();
     if (cachedCategories && now - lastCategoryFetch < 60000) {
         return cachedCategories;
     }
     try {
-        const res = await db.execute(`
+        const res = await database.execute(`
             SELECT category, COUNT(*) as count
             FROM documents
             WHERE category IS NOT NULL AND category != ''
@@ -209,7 +219,8 @@ function checkRateLimit(ip: string): { allowed: boolean; remaining: number; retr
     };
 }
 
-export default async function handler(req: VercelRequest, res: VercelResponse) {
+export function createSearchHandler(database: SearchDatabase) {
+    return async function handler(req: VercelRequest, res: VercelResponse) {
     res.setHeader("Cache-Control", "s-maxage=30, stale-while-revalidate=120");
     res.setHeader("Access-Control-Allow-Origin", "*");
 
@@ -234,7 +245,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const action = req.query.action as string | undefined;
 
     if (action === "categories") {
-        const categories = await getDynamicCategories();
+        const categories = await getDynamicCategories(database);
         return res.status(200).json({ categories });
     }
 
@@ -257,7 +268,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const limit = Number.isInteger(rawLimit) && rawLimit > 0 ? Math.min(rawLimit, 50) : 10;
 
     const words = tokenize(q);
-    const categories = await getDynamicCategories();
+    const categories = await getDynamicCategories(database);
 
     if (words.length === 0) {
         return res.status(200).json({
@@ -278,7 +289,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     let didYouMean: string | null = null;
     for (const w of words) {
         if (w.length >= 4) {
-            const suggestions = await suggestCorrectionDynamic(w);
+            const suggestions = await suggestCorrectionDynamic(database, w);
             if (suggestions && suggestions !== w) {
                 didYouMean = q.replace(new RegExp(`\\b${w}\\b`, "i"), suggestions);
                 break;
@@ -287,9 +298,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     // ── FTS5 full-text query (index lookup, not a full table scan) ──────────
-    // Escape special FTS5 characters in each token and join with OR.
+    // Escape special FTS5 characters in each token. Phrase mode first narrows
+    // candidates to documents containing every term, then verifies the exact phrase
+    // below against the original document content.
     const escapeFts = (w: string) => `"${w.replace(/"/g, '""')}"`;
-    const ftsExpr = words.map(escapeFts).join(" OR ");
+    const ftsExpr = words.map(escapeFts).join(mode === "PHRASE" ? " AND " : " OR ");
 
     let querySql: string;
     const queryArgs: string[] = [ftsExpr];
@@ -317,7 +330,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         `;
     }
 
-    const docsResult = await db.execute({ sql: querySql, args: queryArgs });
+    const docsResult = await database.execute({ sql: querySql, args: queryArgs });
     const docs = docsResult.rows as unknown as DocRow[];
     const N = docs.length;
 
@@ -388,6 +401,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const lowerQuery = q.toLowerCase().trim();
 
     for (const { doc, titleTokens, bodyFreqs, length } of docTokenFreqs) {
+        if (mode === "PHRASE" && !matchesPhrase(doc, q)) {
+            continue;
+        }
+
         let score = 0;
         let matchedCount = 0;
 
@@ -439,7 +456,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const startIndex = (page - 1) * limit;
     const paginatedResults = scoredResults.slice(startIndex, startIndex + limit);
 
-    res.status(200).json({
+    return res.status(200).json({
         q,
         mode,
         category: category ?? "All",
@@ -451,4 +468,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         categories,
         results: paginatedResults,
     });
+    };
 }
+
+export default createSearchHandler(db);

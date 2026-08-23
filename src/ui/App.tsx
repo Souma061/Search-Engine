@@ -285,8 +285,9 @@ export function App() {
                                 {item.snippet && (
                                     <div
                                         className="result-snippet"
-                                        dangerouslySetInnerHTML={{ __html: item.snippet }}
-                                    />
+                                    >
+                                        {item.snippet}
+                                    </div>
                                 )}
                             </li>
                         ))}

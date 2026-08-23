@@ -10,6 +10,10 @@ export function calculateBM25TF(
     k1: number = BM25_K1,
     b: number = BM25_B,
 ): number {
+    if (frequency <= 0 || documentLength <= 0 || averageDocumentLength <= 0) {
+        return 0;
+    }
+
     const lengthNormalization =
         1 -
         b +

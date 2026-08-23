@@ -4,6 +4,7 @@ import fs from "fs";
 import {tokenize} from "../src/indexer/tokenizer.ts";
 import type {Document} from "../src/indexer/document.ts";
 import {createSearchEngine} from "../src/engine/search-engine.ts";
+import { calculateBM25TF } from "../src/ranking/bm25.ts";
 
 const documents: Document[] = ["1", "2", "3", "4"].map((id) => ({
     id,
@@ -50,3 +51,7 @@ test("BM25 OR search returns sorted scores", () => {
     assert.deepEqual(scores, [...scores].sort((a, b) => b - a));
 });
 
+test("BM25 term-frequency guard returns zero for an empty corpus average length", () => {
+    assert.equal(calculateBM25TF(1, 10, 0), 0);
+    assert.equal(createSearchEngine([]).calculateBM25TF(1, 10), 0);
+});

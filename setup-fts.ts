@@ -15,9 +15,12 @@ if (!url || !authToken) {
     process.exit(1);
 }
 
+const databaseUrl = url;
+const databaseAuthToken = authToken;
+
 async function setup() {
     console.log("⚡ Connecting to Turso & setting up FTS5...");
-    const store = new TursoDocumentStore(url, authToken);
+    const store = new TursoDocumentStore(databaseUrl, databaseAuthToken);
     await store.init();
     console.log("⚡ Rebuilding FTS5 index from existing documents...");
     await store.rebuildFts();

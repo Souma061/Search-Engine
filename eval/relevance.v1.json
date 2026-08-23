@@ -1,0 +1,23 @@
+[
+  { "id": "pytorch-docs", "query": "pytorch documentation", "relevance": [{ "url": "https://pytorch.org/docs/stable/index.html", "grade": 3 }] },
+  { "id": "transformers-docs", "query": "hugging face transformers", "relevance": [{ "url": "https://huggingface.co/docs/transformers/index", "grade": 3 }] },
+  { "id": "langchain-intro", "query": "langchain introduction", "relevance": [{ "url": "https://python.langchain.com/docs/introduction", "grade": 3 }] },
+  { "id": "scikit-learn-guide", "query": "scikit learn user guide", "relevance": [{ "url": "https://scikit-learn.org/stable/user_guide.html", "grade": 3 }] },
+  { "id": "react-reference", "query": "react reference", "relevance": [{ "url": "https://react.dev/reference/react", "grade": 3 }] },
+  { "id": "nextjs-docs", "query": "next js documentation", "relevance": [{ "url": "https://nextjs.org/docs", "grade": 3 }] },
+  { "id": "angular-overview", "query": "angular overview", "relevance": [{ "url": "https://angular.dev/overview", "grade": 3 }] },
+  { "id": "vue-introduction", "query": "vue introduction", "relevance": [{ "url": "https://vuejs.org/guide/introduction.html", "grade": 3 }] },
+  { "id": "tailwind-install", "query": "tailwind installation", "relevance": [{ "url": "https://tailwindcss.com/docs/installation", "grade": 3 }] },
+  { "id": "python-tutorial", "query": "python tutorial", "relevance": [{ "url": "https://docs.python.org/3/tutorial/index.html", "grade": 3 }] },
+  { "id": "typescript-handbook", "query": "typescript handbook", "relevance": [{ "url": "https://www.typescriptlang.org/docs/handbook/intro.html", "grade": 3 }] },
+  { "id": "node-file-system", "query": "node file system", "relevance": [{ "url": "https://nodejs.org/api/fs.html", "grade": 3 }] },
+  { "id": "rust-book", "query": "rust book", "relevance": [{ "url": "https://doc.rust-lang.org/book/title-page.html", "grade": 3 }] },
+  { "id": "go-getting-started", "query": "go getting started", "relevance": [{ "url": "https://go.dev/doc/tutorial/getting-started", "grade": 3 }] },
+  { "id": "fastapi-tutorial", "query": "fastapi tutorial", "relevance": [{ "url": "https://fastapi.tiangolo.com/tutorial", "grade": 3 }] },
+  { "id": "express-api", "query": "express api", "relevance": [{ "url": "https://expressjs.com/en/4x/api.html", "grade": 3 }] },
+  { "id": "mdn-web-api", "query": "mdn web api", "relevance": [{ "url": "https://developer.mozilla.org/en-US/docs/Web/API", "grade": 3 }] },
+  { "id": "docker-getting-started", "query": "docker getting started", "relevance": [{ "url": "https://docs.docker.com/get-started", "grade": 3 }] },
+  { "id": "kubernetes-overview", "query": "kubernetes overview", "relevance": [{ "url": "https://kubernetes.io/docs/concepts/overview", "grade": 3 }] },
+  { "id": "postgresql-intro", "query": "postgresql introduction", "relevance": [{ "url": "https://www.postgresql.org/docs/current/intro-whatis.html", "grade": 3 }] },
+  { "id": "redis-getting-started", "query": "redis getting started", "relevance": [{ "url": "https://redis.io/docs/latest/develop/get-started", "grade": 3 }] }
+]

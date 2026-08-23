@@ -41,6 +41,9 @@ export function stem(word: string): string {
         w = w.slice(0, -4);
     } else if (w.endsWith("able") && w.length > 6) {
         w = w.slice(0, -4);
+    } else if (w.endsWith("ation") && w.length > 9) {
+        // installation→install, documentation→document, configuration→configur
+        w = w.slice(0, -5);
     } else if (w.endsWith("tion") && w.length > 6) {
         w = w.slice(0, -4);
     }

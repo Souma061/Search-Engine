@@ -18,8 +18,9 @@
     "db": "tsx db-cli.ts",
     "seed": "tsx seed-demo.ts",
     "crawl": "tsx crawl-and-index.ts",
+    "eval:relevance": "tsx evaluate-relevance.ts",
     "test": "node --test test/*.test.ts",
-    "test:jest": "NODE_OPTIONS=--experimental-vm-modules jest"
+    "test:jest": "node --experimental-vm-modules ./node_modules/jest/bin/jest.js"
   },
   "repository": {
     "type": "git",
