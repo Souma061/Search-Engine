@@ -1,7 +1,7 @@
 import { createClient, type Client } from "@libsql/client";
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import * as fs from "node:fs";
-import { stem } from "../src/indexer/stemmer.ts";
+import { stem } from "../src/indexer/stemmer";
 
 let tursoUrl = process.env.TURSO_DATABASE_URL?.trim();
 let tursoToken = process.env.TURSO_AUTH_TOKEN?.trim();
