@@ -340,7 +340,7 @@ export function createSearchHandler(database: SearchDatabase) {
 
     // Exclude non-English MDN pages (zh-CN, ja, zh-TW, fr, de, etc. outrank en-US)
     conditions.push(
-        "(url NOT LIKE 'https://developer.mozilla.org/%' OR url LIKE 'https://developer.mozilla.org/en-US/%')"
+        "(d.url NOT LIKE 'https://developer.mozilla.org/%' OR d.url LIKE 'https://developer.mozilla.org/en-US/%')"
     );
 
     if (category && category !== "All") {
