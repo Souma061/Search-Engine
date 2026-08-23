@@ -29,7 +29,7 @@ export default async function handler(_req: VercelRequest, res: VercelResponse) 
             timestamp: new Date().toISOString(),
             database: "connected",
             documentIndexed: docCount,
-            latencyMs: Number(performance.now() - start).toFixed(2),
+            latencyMs: latency
         })
 
     } catch (error: any) {
