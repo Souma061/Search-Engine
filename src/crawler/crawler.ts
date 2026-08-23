@@ -156,16 +156,17 @@ export async function crawl(
         }
     };
 
+    // Always crawl the seedUrl first
+    if (frontier.add(seedUrl)) {
+        pool.submit(() => crawlPage(seedUrl, 0));
+    }
+
     // Seed sitemap.xml URLs if available
     const sitemapEntries = await fetchSitemap(seedUrl);
     for (const entry of sitemapEntries) {
         if (frontier.add(entry.url)) {
             pool.submit(() => crawlPage(entry.url, 0));
         }
-    }
-
-    if (frontier.add(seedUrl)) {
-        pool.submit(() => crawlPage(seedUrl, 0));
     }
 
     await pool.done();

@@ -84,6 +84,25 @@ const STOP_WORDS = new Set([
     "was", "what", "when", "where", "who", "will", "with"
 ]);
 
+const SYNONYMS = new Map<string, string[]>([
+    ["documentation", ["docs", "doc"]],
+    ["document", ["docs", "doc"]],
+    ["docs", ["documentation", "document"]],
+    ["doc", ["documentation", "document"]],
+    ["introduction", ["intro", "introduct"]],
+    ["introduct", ["intro", "introduction"]],
+    ["intro", ["introduction", "introduct"]],
+    ["quickstart", ["start", "getting"]],
+    ["postgres", ["postgresql"]],
+    ["postgresql", ["postgres"]],
+    ["js", ["javascript"]],
+    ["javascript", ["js"]],
+    ["ts", ["typescript"]],
+    ["typescript", ["ts"]],
+    ["py", ["python"]],
+    ["python", ["py"]],
+]);
+
 function tokenize(text: string): string[] {
     const rawTokens = text
         .toLowerCase()
@@ -98,6 +117,13 @@ function tokenize(text: string): string[] {
         if (!seen.has(token)) { seen.add(token); tokens.push(token); }
         const stemmed = stem(token);
         if (stemmed !== token && !seen.has(stemmed)) { seen.add(stemmed); tokens.push(stemmed); }
+
+        const syns = SYNONYMS.get(token) || SYNONYMS.get(stemmed);
+        if (syns) {
+            for (const syn of syns) {
+                if (!seen.has(syn)) { seen.add(syn); tokens.push(syn); }
+            }
+        }
     }
     return tokens;
 }
@@ -527,10 +553,31 @@ export function createSearchHandler(database: SearchDatabase) {
             // Domain boost: tech-specific queries should prefer on-domain results
             for (const { terms, domain } of DOMAIN_BOOST) {
                 if (terms.some(t => words.includes(t)) && doc.url.includes(domain)) {
-                    score += 15.0;
+                    score += 25.0;
                     break;
                 }
             }
+
+            try {
+                const u = new URL(doc.url);
+                const pathLower = u.pathname.toLowerCase().replace(/\/$/, "");
+                const segments = pathLower.split("/").filter(Boolean);
+
+                // Shallow URL bonus for root / entry documentation pages
+                if (segments.length <= 2) {
+                    score += (3 - segments.length) * 3.0; // +6 for 1 segment, +3 for 2 segments
+                }
+
+                const urlTokens = new Set(pathLower.split(/[^a-z0-9]+/));
+                for (const w of words) {
+                    if (w.length >= 3 && urlTokens.has(w)) {
+                        score += 6.0;
+                    }
+                    if (pathLower.endsWith(`/${w}`) || pathLower.endsWith(`/${w}.html`) || pathLower.endsWith(`/${w}/`)) {
+                        score += 10.0;
+                    }
+                }
+            } catch {}
 
             scoredResults.push({
                 documentId: doc.id,
