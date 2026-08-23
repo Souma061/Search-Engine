@@ -28,7 +28,10 @@ export async function fetchSitemap(seedUrl: string): Promise<SitemapEntry[]> {
     const sitemapUrl = new URL("/sitemap.xml", seedUrl).toString();
 
     try {
-        const res = await fetch(sitemapUrl);
+        const res = await fetch(sitemapUrl, {
+            headers: { "User-Agent": "DevDocsBot/1.0" },
+            signal: AbortSignal.timeout(8_000),
+        });
         if (!res.ok) return [];
 
         const xml = await res.text();

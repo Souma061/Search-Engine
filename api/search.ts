@@ -144,6 +144,10 @@ function levenshteinDistance(a: string, b: string): number {
     return row[b.length];
 }
 
+function escapeRegExp(value: string): string {
+    return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 function generateSnippet(text: string, queryWords: string[], windowSize = 160): string {
     if (!text || queryWords.length === 0) return "";
     const lowerText = text.toLowerCase();
@@ -161,7 +165,7 @@ function generateSnippet(text: string, queryWords: string[], windowSize = 160): 
     // Highlight whole words only (avoid highlighting letters inside other words)
     for (const word of queryWords) {
         if (!word) continue;
-        const escaped = word.replace(/[.*+?^${}()|[\\]\\\\]/g, "\\$&");
+        const escaped = escapeRegExp(word);
         const regex = new RegExp(`\\b(${escaped})\\b`, "gi");
         snippet = snippet.replace(regex, "<mark>$1</mark>");
     }
@@ -264,6 +268,32 @@ const DOMAIN_BOOST: Array<{ terms: string[]; domain: string }> = [
     { terms: ["hugging", "transformers"], domain: "huggingface.co" },
 ];
 
+
+// URL-shape bonuses shared by both ranking paths: shallow paths, path tokens, path endings
+function applyUrlStructureBoost(url: string, words: string[]): number {
+    let boost = 0;
+    try {
+        const u = new URL(url);
+        const pathLower = u.pathname.toLowerCase().replace(/\/$/, "");
+        const segments = pathLower.split("/").filter(Boolean);
+
+        // Shallow URL bonus for root / entry documentation pages
+        if (segments.length <= 2) {
+            boost += (3 - segments.length) * 3.0; // +6 for 1 segment, +3 for 2 segments
+        }
+
+        const urlTokens = new Set(pathLower.split(/[^a-z0-9]+/));
+        for (const w of words) {
+            if (w.length >= 3 && urlTokens.has(w)) {
+                boost += 6.0;
+            }
+            if (pathLower.endsWith(`/${w}`) || pathLower.endsWith(`/${w}.html`) || pathLower.endsWith(`/${w}/`)) {
+                boost += 10.0;
+            }
+        }
+    } catch {}
+    return boost;
+}
 
 // In-memory cache for category aggregation (refreshed every 60s)
 let cachedCategories: Array<{ name: string; count: number }> | null = null;
@@ -406,7 +436,7 @@ export function createSearchHandler(database: SearchDatabase) {
         if (w.length >= 4) {
             const suggestions = await suggestCorrectionDynamic(database, w);
             if (suggestions && suggestions !== w) {
-                didYouMean = q.replace(new RegExp(`\\b${w}\\b`, "i"), suggestions);
+                didYouMean = q.replace(new RegExp(`\\b${escapeRegExp(w)}\\b`, "i"), () => suggestions);
                 break;
             }
         }
@@ -433,8 +463,13 @@ export function createSearchHandler(database: SearchDatabase) {
         queryArgs.push(category);
     }
     
+    // BM25 mode is the hot path: FTS5 already computed corpus-wide BM25 (`docs_fts.rank`),
+    // so fetch lightweight metadata + rank only and add boosts in JS. TF-IDF and PHRASE
+    // modes need per-document body statistics / verification, so they keep fetching text.
+    const needText = mode !== "BM25";
+
     querySql = `
-        SELECT d.id, d.url, d.title, d.text, d.category
+        SELECT d.id, d.url, d.title, ${needText ? "d.text," : ""} d.category${needText ? "" : ", docs_fts.rank AS base"}
         FROM docs_fts
         JOIN documents d ON docs_fts.rowid = d.rowid
         WHERE ${conditions.join(" AND ")}
@@ -453,10 +488,67 @@ export function createSearchHandler(database: SearchDatabase) {
             category: category ?? "All",
             didYouMean,
             count: 0,
+            page,
+            limit,
+            totalPages: 0,
             categories,
             results: [],
         });
     }
+
+    const scoredResults: Array<{
+        documentId: string;
+        title: string;
+        url: string;
+        score: number;
+        snippet: string;
+        category: string;
+    }> = [];
+
+    const lowerQuery = q.toLowerCase().trim();
+
+    if (!needText) {
+        // Light path: FTS5 `rank` is corpus-wide BM25 (negative, ascending = best first).
+        // Convert to a descending score and layer the cheap metadata-only boosts on top.
+        for (const row of docs as unknown as Array<DocRow & { base: number }>) {
+            let score = -(Number(row.base) || 0);
+            const titleTokens = new Set(tokenize(row.title));
+
+            for (const w of words) {
+                // Title Boost
+                if (titleTokens.has(w)) score += 6.0;
+
+                // Category match boost
+                if (row.category && row.category.toLowerCase().includes(w)) score += 3.0;
+                if (row.url.toLowerCase().includes(w)) score += 1.5;
+            }
+
+            // Exact multi-word phrase boost (title only; body check needs text)
+            if (words.length > 1 && row.title.toLowerCase().includes(lowerQuery)) {
+                score += 8.0;
+            }
+
+            // Domain boost: tech-specific queries should prefer on-domain results
+            for (const { terms, domain } of DOMAIN_BOOST) {
+                if (terms.some(t => words.includes(t)) && row.url.includes(domain)) {
+                    score += 25.0;
+                    break;
+                }
+            }
+
+            score += applyUrlStructureBoost(row.url, words);
+
+            scoredResults.push({
+                documentId: row.id,
+                title: row.title,
+                url: row.url,
+                score,
+                snippet: "",
+                category: row.category ?? "General",
+            });
+        }
+    } else {
+    // Text-heavy path (TF-IDF / PHRASE): per-document body statistics are required.
 
     // BM25 Ranking with Title Boost
     let totalLength = 0;
@@ -500,17 +592,6 @@ export function createSearchHandler(database: SearchDatabase) {
         const docCount = df[w] || 0;
         idf[w] = Math.log(1 + (N - docCount + 0.5) / (docCount + 0.5));
     }
-
-    const scoredResults: Array<{
-        documentId: string;
-        title: string;
-        url: string;
-        score: number;
-        snippet: string;
-        category: string;
-    }> = [];
-
-    const lowerQuery = q.toLowerCase().trim();
 
     for (const { doc, titleTokens, bodyFreqs, length } of docTokenFreqs) {
         if (mode === "PHRASE" && !matchesPhrase(doc, q)) {
@@ -558,26 +639,7 @@ export function createSearchHandler(database: SearchDatabase) {
                 }
             }
 
-            try {
-                const u = new URL(doc.url);
-                const pathLower = u.pathname.toLowerCase().replace(/\/$/, "");
-                const segments = pathLower.split("/").filter(Boolean);
-
-                // Shallow URL bonus for root / entry documentation pages
-                if (segments.length <= 2) {
-                    score += (3 - segments.length) * 3.0; // +6 for 1 segment, +3 for 2 segments
-                }
-
-                const urlTokens = new Set(pathLower.split(/[^a-z0-9]+/));
-                for (const w of words) {
-                    if (w.length >= 3 && urlTokens.has(w)) {
-                        score += 6.0;
-                    }
-                    if (pathLower.endsWith(`/${w}`) || pathLower.endsWith(`/${w}.html`) || pathLower.endsWith(`/${w}/`)) {
-                        score += 10.0;
-                    }
-                }
-            } catch {}
+            score += applyUrlStructureBoost(doc.url, words);
 
             scoredResults.push({
                 documentId: doc.id,
@@ -589,6 +651,7 @@ export function createSearchHandler(database: SearchDatabase) {
             });
         }
     }
+    }
 
     scoredResults.sort((a, b) => b.score - a.score);
 
@@ -596,6 +659,24 @@ export function createSearchHandler(database: SearchDatabase) {
     const totalPages = Math.ceil(totalResults / limit);
     const startIndex = (page - 1) * limit;
     const paginatedResults = scoredResults.slice(startIndex, startIndex + limit);
+
+    // BM25 hot path: fetch body text only for the visible page's documents to build snippets
+    if (!needText && paginatedResults.length > 0) {
+        try {
+            const textResult = await database.execute({
+                sql: `SELECT id, text FROM documents WHERE id IN (${paginatedResults.map(() => "?").join(",")})`,
+                args: paginatedResults.map((r) => r.documentId),
+            });
+            const textById = new Map(
+                textResult.rows.map((row: any) => [String(row.id), String(row.text ?? "")])
+            );
+            for (const r of paginatedResults) {
+                r.snippet = generateSnippet(textById.get(r.documentId) ?? "", words);
+            }
+        } catch {
+            // snippets are non-critical; leave them empty on failure
+        }
+    }
 
     return res.status(200).json({
         q,

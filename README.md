@@ -6,7 +6,7 @@
 [![Turso](https://img.shields.io/badge/Database-Turso%20(libSQL%20FTS5)-00E699.svg?logo=sqlite)](https://turso.tech)
 [![Vercel](https://img.shields.io/badge/Deploy-Vercel-black.svg?logo=vercel)](https://vercel.com)
 [![CI](https://img.shields.io/badge/CI-GitHub%20Actions-2088FF.svg?logo=github-actions)](https://github.com/Souma061/Search-Engine)
-[![Tests](https://img.shields.io/badge/Tests-33%2F33%20Passing-brightgreen.svg)]()
+[![Tests](https://img.shields.io/badge/Tests-39%2F39%20Passing-brightgreen.svg)]()
 
 > A production-grade developer documentation search engine built from first principles in **TypeScript**. Crawls web documentation across **AI/ML**, **Frontend**, **Backend**, and **DevOps**, indexes full-text content in **Turso (distributed libSQL with FTS5)**, ranks queries with **Okapi BM25 + Title Boost**, protects servers with **Sliding-Window Rate Limiting**, and serves instant paginated results over a **Vercel Serverless API** with global **Edge CDN Caching**.
 
@@ -184,7 +184,7 @@ pnpm run db "SELECT title, rank FROM docs_fts WHERE docs_fts MATCH 'react' ORDER
 
 ## 🧪 Testing & Reliability Suite
 
-Run all 33 automated tests (unit, integration, crawler, ranking, and error resilience):
+Run all 39 automated tests (unit, integration, crawler, ranking, and error resilience):
 
 ```bash
 pnpm test
@@ -206,7 +206,7 @@ pnpm test
 ✔ parseSitemap extracts loc URLs and lastmod timestamps from XML (3.54ms)
 ✔ generateSnippet extracts surrounding text window and highlights query words (1.30ms)
 ...
-ℹ tests 33 | pass 33 | fail 0
+ℹ tests 39 | pass 39 | fail 0
 ```
 
 ---

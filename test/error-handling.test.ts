@@ -1,7 +1,28 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import searchHandler from "../api/search.ts";
-import healthHandler from "../api/healthCheck.ts";
+import { createSearchHandler, type SearchDatabase } from "../api/search.ts";
+import { createHealthHandler, type HealthDatabase } from "../api/healthCheck.ts";
+
+// Hermetic mock database — tests never touch the real Turso instance.
+const mockDb: SearchDatabase = {
+    execute: async (statement: string | { sql: string }) => {
+        const sql = typeof statement === "string" ? statement : statement.sql;
+        if (sql.includes("docs_vocab") || sql.includes("GROUP BY category")) {
+            return { rows: [] } as any;
+        }
+        return {
+            rows: [
+                {
+                    id: "https://react.dev/reference/react",
+                    url: "https://react.dev/reference/react",
+                    title: "React Reference",
+                    text: "react components let you build user interfaces with state and hooks",
+                    category: "React",
+                },
+            ],
+        } as any;
+    },
+};
 
 function createMockRes() {
     let statusCode = 200;
@@ -37,7 +58,7 @@ test("Error Handling: Query exceeding max length returns 400", async () => {
     };
     const res = createMockRes();
 
-    await searchHandler(req, res);
+    await createSearchHandler(mockDb)(req, res);
 
     assert.equal(res.getStatus(), 400);
     assert.match(res.getBody().error, /Query too long/);
@@ -50,6 +71,9 @@ test("Error Handling: Special FTS5 characters do not crash query engine", async 
         '(((((())))))',
         'SELECT * FROM documents;',
         '../../../etc/passwd',
+        // regression: unescaped regex metacharacters used to throw in generateSnippet
+        'c++',
+        'node.js',
     ];
 
     for (const q of dangerousQueries) {
@@ -60,7 +84,7 @@ test("Error Handling: Special FTS5 characters do not crash query engine", async 
         };
         const res = createMockRes();
 
-        await searchHandler(req, res);
+        await createSearchHandler(mockDb)(req, res);
 
         // Should return 200 with safe results, not 500 error
         assert.equal(res.getStatus(), 200);
@@ -76,7 +100,7 @@ test("Error Handling: Invalid pagination values are safely sanitized", async () 
     };
     const res = createMockRes();
 
-    await searchHandler(req, res);
+    await createSearchHandler(mockDb)(req, res);
 
     assert.equal(res.getStatus(), 200);
     assert.equal(res.getBody().page, 1); // clamped to min 1
@@ -95,7 +119,7 @@ test("Error Handling: Rate limiter triggers 429 on abuse", async () => {
             socket: { remoteAddress: testIp },
         };
         const res = createMockRes();
-        await searchHandler(req, res);
+        await createSearchHandler(mockDb)(req, res);
         if (res.getStatus() === 429) {
             hitRateLimit = true;
             assert.ok(res.getHeaders()["retry-after"]);
@@ -108,15 +132,19 @@ test("Error Handling: Rate limiter triggers 429 on abuse", async () => {
 });
 
 test("Error Handling: Health check handles request and reports status", async () => {
+    const healthDb: HealthDatabase = {
+        execute: async () => ({ rows: [{ count: 42 }] } as any),
+    };
     const req: any = {};
     const res = createMockRes();
 
-    await healthHandler(req, res);
+    await createHealthHandler(healthDb)(req, res);
 
     const status = res.getStatus();
     const body = res.getBody();
 
-    assert.ok(status === 200 || status === 503);
-    assert.ok(body.status === "healthy" || body.status === "unhealthy");
+    assert.equal(status, 200);
+    assert.equal(body.status, "healthy");
+    assert.equal(body.documentIndexed, 42);
     assert.ok(body.timestamp);
 });

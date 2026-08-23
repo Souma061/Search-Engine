@@ -5,10 +5,9 @@
     "moduleResolution": "NodeNext",
     "strict": true,
     "esModuleInterop": true,
-    "types": ["node", "jest"],
+    "types": ["node"],
     "allowJs": true,
-    "noEmit": false,
-    "outDir": "dist",
+    "noEmit": true,
     "allowImportingTsExtensions": true,
     "rewriteRelativeImportExtensions": true,
     "skipLibCheck": true

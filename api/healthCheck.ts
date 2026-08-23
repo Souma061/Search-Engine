@@ -1,4 +1,4 @@
-import { createClient } from "@libsql/client";
+import { createClient, type Client } from "@libsql/client";
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import * as fs from "node:fs";
 
@@ -16,28 +16,34 @@ const db = createClient({
     authToken: tursoToken ?? "",
 });
 
-export default async function handler(_req: VercelRequest, res: VercelResponse) {
-    const start = performance.now();
-    try {
-        //ping db and get total doc count
-        const result = await db.execute("SELECT COUNT(*) AS count FROM documents");
-        const docCount = Number(result.rows[0]?.count ?? 0);
-        const latency = Number(performance.now() - start).toFixed(2);
+export type HealthDatabase = Pick<Client, "execute">;
 
-        return res.status(200).json({
-            status: "healthy",
-            timestamp: new Date().toISOString(),
-            database: "connected",
-            documentIndexed: docCount,
-            latencyMs: latency
-        })
+export function createHealthHandler(database: HealthDatabase) {
+    return async function handler(_req: VercelRequest, res: VercelResponse) {
+        const start = performance.now();
+        try {
+            //ping db and get total doc count
+            const result = await database.execute("SELECT COUNT(*) AS count FROM documents");
+            const docCount = Number(result.rows[0]?.count ?? 0);
+            const latency = Number(performance.now() - start).toFixed(2);
 
-    } catch (error: any) {
-        return res.status(503).json({
-            status: "unhealthy",
-            timestamp: new Date().toISOString(),
-            database: "disconnected",
-            error: error?.message || "Database unreachable",
-        });
-    }
+            return res.status(200).json({
+                status: "healthy",
+                timestamp: new Date().toISOString(),
+                database: "connected",
+                documentIndexed: docCount,
+                latencyMs: latency
+            })
+
+        } catch (error: any) {
+            return res.status(503).json({
+                status: "unhealthy",
+                timestamp: new Date().toISOString(),
+                database: "disconnected",
+                error: error?.message || "Database unreachable",
+            });
+        }
+    };
 }
+
+export default createHealthHandler(db);

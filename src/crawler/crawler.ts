@@ -48,7 +48,10 @@ export async function crawl(
 
     try {
         await limiter.wait(robotsUrl);
-        const robotsResponse = await fetch(robotsUrl);
+        const robotsResponse = await fetch(robotsUrl, {
+            headers: { "User-Agent": "DevDocsBot/1.0" },
+            signal: AbortSignal.timeout(8_000),
+        });
         const robotsText = robotsResponse.ok ? await robotsResponse.text() : "";
         robots = new RobotsChecker(robotsText);
     } catch (error) {

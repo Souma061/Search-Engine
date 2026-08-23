@@ -286,7 +286,9 @@ export function App() {
                                     <div
                                         className="result-snippet"
                                     >
-                                        {item.snippet}
+                                        {item.snippet.split(/<\/?mark>/).map((part, i) =>
+                                            i % 2 === 1 ? <mark key={i}>{part}</mark> : <span key={i}>{part}</span>
+                                        )}
                                     </div>
                                 )}
                             </li>

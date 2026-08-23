@@ -95,6 +95,13 @@ async function fetchPageOnce(
         }
 
         const text = await response.text();
+
+        // ponytail: header/length size guard, stream-based cap if huge pages become a problem
+        const declaredLength = Number(response.headers.get("content-length") ?? 0);
+        if (declaredLength > 5_000_000 || text.length > 5_000_000) {
+            throw new Error(`Page too large to index (${url}): ${declaredLength || text.length} bytes`);
+        }
+
         const etag = response.headers.get("etag") ?? undefined;
         const lastModified = response.headers.get("last-modified") ?? undefined;
 
