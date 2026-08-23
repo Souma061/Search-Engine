@@ -7,7 +7,7 @@ const TURSO_TOKEN = process.env.TURSO_AUTH_TOKEN?.trim();
 
 const SEED_URLS = [
     // 🧠 AI / Machine Learning
-    "https://pytorch.org/docs/stable/index.html",
+    "https://pytorch.org/docs/2.13/index.html",
     "https://huggingface.co/docs/transformers/index",
     "https://python.langchain.com/docs/introduction",
     "https://scikit-learn.org/stable/user_guide.html",
